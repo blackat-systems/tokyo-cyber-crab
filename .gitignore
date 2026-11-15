@@ -1,0 +1,8 @@
+# lo que genera la herramienta de vista previa
+tools/preview.html
+# borradores del sonido; el que se usa es sounds/tunga.wav
+sounds/tunga-v*.wav
+# notas de trabajo, con rutas de una sola máquina
+docs/STATUS.md
+# tipos que escribe el motor al cargar el mod
+.claude-plugin/types/

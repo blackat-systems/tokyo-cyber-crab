@@ -1,0 +1,24 @@
+{
+  "name": "tokyo-crab",
+  "version": "1.0.0",
+  "description": "Tokyo Cyber Crab: a live side panel of Claude's steps with an animated pixel crab, and a neon-city look for the app",
+  "author": { "name": "Joa" },
+  "license": "MIT",
+  "keywords": ["theme", "mod", "panel", "pixel-art", "cyberpunk", "tokyo-night", "crab"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "language": {
+      "type": "string",
+      "title": "Language / Idioma",
+      "description": "The language of the panel, the commands and the crab's lines. en: English. es: español de Córdoba, the crab's mother tongue.",
+      "options": ["en", "es"],
+      "default": "en"
+    },
+    "name": {
+      "type": "string",
+      "title": "Your name",
+      "description": "The tag above your own messages. Leave it empty for YOU (VOS in Spanish).",
+      "default": ""
+    }
+  }
+}

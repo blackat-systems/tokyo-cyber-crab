@@ -1,13 +1,13 @@
-// Todo lo que el mod dice, en los dos idiomas. El cangrejo es cordobés en ambos:
-// en inglés sigue hablando de fernet, cuarteto y siesta, sólo que se le entiende.
+// Todo lo que el mod dice, en los dos idiomas. El cangrejo nació hablando cordobés y así
+// sale de fábrica; en inglés sigue hablando de fernet, cuarteto y siesta.
 // Las frases sueltas del cangrejo y la ropa están en ./fun.
 
 import type { AgentStatus, Mood } from '../types'
 
 export type Lang = 'en' | 'es'
 
-/** El idioma elegido en las opciones del mod; cualquier otra cosa es inglés. */
-export const langOf = (v: unknown): Lang => (v === 'es' ? 'es' : 'en')
+/** El idioma elegido en las opciones del mod; cualquier otra cosa es castellano. */
+export const langOf = (v: unknown): Lang => (v === 'en' ? 'en' : 'es')
 
 export type Strings = {
   /** El título del panel. */

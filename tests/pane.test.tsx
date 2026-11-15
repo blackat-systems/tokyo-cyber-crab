@@ -6,8 +6,10 @@ import { LOOK, LOOK_PROBLEMS } from '../hooks/look'
 import { checkColors } from '../hooks/make-colors.js'
 import { bandState, fmtWork, groupSteps, waitingWord } from '../hooks/register'
 
-// El mod sale en inglés. Los tests de siempre corren en castellano, el idioma en que nació.
+// El mod sale en castellano, el idioma en que nació. Estos tests lo piden igual a propósito:
+// así no dependen de cuál sea el valor de fábrica. Los de inglés piden `en`.
 const ES = { options: { language: 'es' } } as const
+const EN = { options: { language: 'en' } } as const
 
 const pane = (title: string) =>
   ({
@@ -241,7 +243,7 @@ test('al arrancar pide la ciudad de fondo y /cyber la apaga y la vuelve a prende
   expect(sets.length).toBe(2)
 })
 
-test('si la app todavía no entiende colores, /cyber pide sólo la ciudad de fondo', async ($, on) => {
+test('si la app todavía no entiende colores, /cyber pide sólo la ciudad de fondo', EN, async ($, on) => {
   const sets: Record<string, unknown>[] = []
   on('theme.set', (_, e) => {
     sets.push(e as Record<string, unknown>)
@@ -411,7 +413,7 @@ test(
   },
 )
 
-test('sin nombre elegido, la etiqueta dice VOS en castellano y YOU en inglés', ES, async ($, on) => {
+test('de fábrica, sin tocar ninguna opción, la etiqueta dice VOS', async ($, on) => {
   on('ui.render', ($$, e) => {
     const { Text } = $$.ui.resolve(e)
     return <Text>el mensaje</Text>
@@ -421,7 +423,7 @@ test('sin nombre elegido, la etiqueta dice VOS en castellano y YOU en inglés', 
   await mine.unmount()
 })
 
-test('by default your messages are tagged YOU', async ($, on) => {
+test('in English your messages are tagged YOU', EN, async ($, on) => {
   on('ui.render', ($$, e) => {
     const { Text } = $$.ui.resolve(e)
     return <Text>the message</Text>
@@ -446,7 +448,7 @@ test('/cyber-sonido apaga y prende el tunga-tunga; en Windows lo toca el sistema
   expect(JSON.stringify(ran[0])).not.toContain('Users')
 })
 
-test('outside Windows the tunga-tunga plays through the engine, from the mod own file', async ($, on) => {
+test('outside Windows the tunga-tunga plays through the engine, from the mod own file', EN, async ($, on) => {
   const played: unknown[] = []
   let ran = 0
   on('env.get', () => ({ value: undefined }))
@@ -471,9 +473,9 @@ test('el cangrejo no opina solo: hay que prenderlo y avisa que gasta', ES, async
   expect(JSON.stringify(await $.command.run({ command: 'cangrejo-opina' } as never))).toContain('sin gastar')
 })
 
-// ---------- In English, the default ----------
+// ---------- In English, the option ----------
 
-test('out of the box the panel speaks English', async ($, on) => {
+test('set to English, the panel speaks English', EN, async ($, on) => {
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
   on('tool.call', () => ({ result: {} }))
@@ -493,7 +495,7 @@ test('out of the box the panel speaks English', async ($, on) => {
   }
 })
 
-test('the commands are named in the chosen language', async ($, on) => {
+test('the commands are named in the chosen language', EN, async ($, on) => {
   const names: string[] = []
   on('command.register', (_, e) => {
     names.push((e as { name: string }).name)
@@ -518,7 +520,7 @@ test('en castellano los comandos conservan sus nombres de siempre', ES, async ($
   expect([...names].sort()).toEqual(['cangrejo', 'cangrejo-opina', 'cangrejo-ropa', 'cyber', 'cyber-sonido'])
 })
 
-test('the visor strip and the waiting line speak English too', async ($, on) => {
+test('the visor strip and the waiting line speak English too', EN, async ($, on) => {
   on('ui.render', ($$, e) => {
     const { Text } = $$.ui.resolve(e)
     return <Text>below</Text>
@@ -526,10 +528,35 @@ test('the visor strip and the waiting line speak English too', async ($, on) => 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /on air/ }))?.text).toBe('on air')
   await ui.unmount()
-  expect(waitingWord('thinking', 0)).toBe('Asking La Mona for a song')
-  expect(waitingWord('thinking', 0, 'es')).toBe('Pidiéndole un tema a la Mona')
+  expect(waitingWord('thinking', 0, 'en')).toBe('Asking La Mona for a song')
+  // sin decir idioma, castellano
+  expect(waitingWord('thinking', 0)).toBe('Pidiéndole un tema a la Mona')
   expect(waitingWord('tool-use', 0)).toBeUndefined()
-  expect(bandState('done', false).text).toBe('nailed it')
+  expect(bandState('done', false, 'en').text).toBe('nailed it')
+  expect(bandState('done', false).text).toBe('listo el pollo')
+})
+
+test('de fábrica, sin tocar ninguna opción, el mod habla castellano', async ($, on) => {
+  const names: string[] = []
+  on('command.register', (_, e) => {
+    names.push((e as { name: string }).name)
+    return { value: { command: (e as { name: string }).name } }
+  })
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.tool.call({ tool: 'Read', file_path: 'C:/x/src/app.ts' })
+  expect(names).toContain('cangrejo')
+  expect(names).not.toContain('crab')
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /Leyendo/ }))?.text).toBe('Leyendo · app.ts')
+  expect(await ui.find({ type: 'Text', text: /^MARCADOR$/ })).toBeDefined()
+  await ui.unmount()
 })
 
 test('los dos idiomas dicen lo mismo: ni una clave ni una frase de menos', async () => {

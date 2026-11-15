@@ -1,69 +1,69 @@
 # Tokyo Cyber Crab
 
-![A pixel crab walking through a neon city in the rain, with a progress track under its feet](docs/hero.png)
+![Un cangrejo pixelado caminando bajo la lluvia por una ciudad de neón, con una pista de avance bajo las patas](docs/hero.png)
 
-A mod for Claude Code that puts a pixel crab from Córdoba, Argentina, next to your chat. A side panel shows what Claude is doing, step by step, while the crab walks its neon city: it works when Claude works, jumps when the task lands, glitches when something breaks, and sleeps the siesta in between. In the desktop app the whole window takes the same night-and-neon look.
+Un mod para Claude Code que pone un cangrejo pixelado cordobés al lado del chat. Un panel muestra lo que Claude está haciendo, paso a paso, mientras el cangrejo recorre su ciudad de neón: labura cuando Claude labura, salta cuando la tarea sale, se llena de interferencia cuando algo falla y duerme la siesta entre pedido y pedido. En la app de escritorio toda la ventana toma el mismo look de noche y neón.
 
-[En español, más abajo.](#en-español)
+[In English](README.en.md)
 
-## What it does
+## Qué hace
 
-- **A live panel of Claude's steps.** Every tool call shows as one line with its file or command, how long it took, and whether it worked. Runs of the same step fold into one line.
-- **The crab walks your plan.** When Claude keeps a task list, the crab crosses a progress track toward a flag as items get done.
-- **Subagents get their own crabs.** Each one shows what it is working on, how many tools it has used, and how it ended.
-- **A session scoreboard.** Prompts, steps, failures and time worked, under a neon equalizer that moves while Claude works.
-- **A visor strip above the prompt box,** a closing line under each finished request, and a waiting line that says things like "Asking La Mona for a song" instead of "Thinking".
-- **A look for the app.** Night-blue surfaces, neon accents, and a city skyline behind the conversation, with the crab on a rooftop.
-- **Twelve outfits,** changed every five minutes or on demand, and a crab that comments on the work in the voice of a Córdoba street corner.
-- **A short cuarteto riff,** the tunga-tunga, when a task with real work finishes. One command turns it off.
+- **Un panel en vivo con los pasos de Claude.** Cada herramienta que usa aparece en un renglón con su archivo o comando, cuánto tardó y si salió bien. Varios pasos seguidos del mismo tipo se juntan en uno.
+- **El cangrejo recorre tu plan.** Cuando Claude lleva una lista de tareas, el cangrejo avanza por una pista hasta una banderita a medida que las va cerrando.
+- **Los subagentes tienen sus propios cangrejos.** Cada uno muestra en qué anda, cuántas herramientas usó y cómo terminó.
+- **Un marcador de la sesión.** Pedidos, pasos, fallas y tiempo de laburo, bajo un ecualizador de neón que se mueve mientras Claude trabaja.
+- **Una franja de visor sobre el cuadro de texto,** un renglón que cierra cada pedido terminado y una línea de espera que dice cosas como «Pidiéndole un tema a la Mona» en vez de «Thinking».
+- **Un look para la app.** Superficies azul noche, acentos de neón y una ciudad de fondo detrás de la conversación, con el cangrejo en una terraza.
+- **Doce pilchas,** que se cambia solo cada cinco minutos o cuando se lo pedís, y un cangrejo que opina del laburo con tonada.
+- **Un tunga-tunga cortito** cuando termina una tarea con trabajo de verdad. Un comando lo apaga.
 
-![The four moods of the crab: asleep, working in the rain, celebrating with fireworks, and glitching in red](docs/moods.png)
+![Los cuatro humores del cangrejo: dormido, trabajando bajo la lluvia, festejando con fuegos artificiales y con interferencia en rojo](docs/moods.png)
 
-## Install
+## Instalación
 
-At the prompt of a Claude Code terminal session:
+En una sesión de Claude Code en la terminal:
 
 ```
 /plugin install tokyo-crab --marketplace blackat-systems/tokyo-cyber-crab
 ```
 
-From a shell:
+Desde una consola:
 
 ```
 claude plugin install tokyo-crab --marketplace blackat-systems/tokyo-cyber-crab
 ```
 
-In the desktop app, click + next to the prompt box, then Plugins, then Add marketplace with `blackat-systems/tokyo-cyber-crab`, then Add plugin.
+En la app de escritorio: clic en el + al lado del cuadro de texto, después Plugins, Add marketplace con `blackat-systems/tokyo-cyber-crab`, y Add plugin.
 
-Installed at the user scope, the mod loads in every session after that, the desktop app included.
+Instalado para el usuario, el mod se carga en todas las sesiones que abras después, las de la app de escritorio incluidas.
 
-## Where it shows
+## Dónde se ve
 
-| | Desktop app | Terminal |
+| | App de escritorio | Terminal |
 | --- | --- | --- |
-| Panel, visor strip, closing line, waiting line | Yes, with the animated crab | Yes, with a text crab |
-| App colors and city backdrop | Yes | No: the terminal draws no looks |
+| Panel, franja de visor, renglón de cierre, línea de espera | Sí, con el cangrejo animado | Sí, con un cangrejo de texto |
+| Colores de la app y ciudad de fondo | Sí | No: la terminal no dibuja looks |
 
-For the terminal there is a matching color theme in `themes/neo-cordoba.json`. Copy it to `~/.claude/themes/` and set `"theme": "custom:neo-cordoba"` in `~/.claude/settings.json`.
+Para la terminal hay un tema de colores a juego en `themes/neo-cordoba.json`. Copialo a `~/.claude/themes/` y poné `"theme": "custom:neo-cordoba"` en `~/.claude/settings.json`.
 
-## Commands
+## Comandos
 
-| Command | In Spanish | What it does |
+| Comando | Con `language: en` | Qué hace |
 | --- | --- | --- |
-| `/crab` | `/cangrejo` | Opens the panel. It also opens by itself when a session starts. |
-| `/crab-outfit` | `/cangrejo-ropa` | Changes the crab's outfit. |
-| `/crab-talk` | `/cangrejo-opina` | The crab comments on each finished task. Off by default, because each comment is one small model call. |
-| `/cyber-sound` | `/cyber-sonido` | Turns the end-of-task sound on or off. |
-| `/cyber` | `/cyber` | Turns the app colors, backdrop, visor strip and waiting line on or off. The panel stays. |
+| `/cangrejo` | `/crab` | Abre el panel. También se abre solo al empezar una sesión. |
+| `/cangrejo-ropa` | `/crab-outfit` | Le cambia la pilcha al cangrejo. |
+| `/cangrejo-opina` | `/crab-talk` | El cangrejo comenta cada tarea terminada. Viene apagado, porque cada comentario es una consulta chica al modelo. |
+| `/cyber-sonido` | `/cyber-sound` | Prende o apaga el sonido de fin de tarea. |
+| `/cyber` | `/cyber` | Prende o apaga los colores de la app, el fondo, la franja de visor y la línea de espera. El panel se queda. |
 
-## Options
+## Opciones
 
-| Option | Values | Default |
+| Opción | Valores | De fábrica |
 | --- | --- | --- |
-| `language` | `en`, or `es` for the Spanish of Córdoba the crab was born speaking | `en` |
-| `name` | The tag above your own messages | empty, which shows `YOU` (`VOS` in Spanish) |
+| `language` | `es`, el castellano de Córdoba con el que nació el cangrejo, o `en` para inglés | `es` |
+| `name` | La etiqueta sobre tus propios mensajes | vacío, que muestra `VOS` (`YOU` en inglés) |
 
-The installer asks for them. To change them later, edit `~/.claude/settings.json`:
+El instalador las pregunta. Para cambiarlas después, editá `~/.claude/settings.json`:
 
 ```json
 {
@@ -75,34 +75,34 @@ The installer asks for them. To change them later, edit `~/.claude/settings.json
 }
 ```
 
-## The wardrobe
+## El ropero
 
-![The crab in each of its twelve outfits](docs/outfits.png)
+![El cangrejo con cada una de sus doce pilchas](docs/outfits.png)
 
-## The palette
+## La paleta
 
-One palette, in [`hooks/palette.ts`](hooks/palette.ts), colors the app, the panel and the city. Each neon means one thing.
+Una sola paleta, en [`hooks/palette.ts`](hooks/palette.ts), pinta la app, el panel y la ciudad. Cada neón dice una sola cosa.
 
-| Color | Hex | Means |
+| Color | Hex | Qué dice |
 | --- | --- | --- |
-| Magenta | `#ff4fd8` | The brand: section marks, the sign, the flag |
-| Cyan | `#00e5ff` | Alive: whatever is running now |
-| Green | `#39ff9a` | It worked |
-| Red | `#ff3d71` | It failed |
-| Orange | `#ff9e64` | The crab |
+| Magenta | `#ff4fd8` | La marca: las marcas de sección, el cartel, la banderita |
+| Cian | `#00e5ff` | Vivo: lo que está corriendo ahora |
+| Verde | `#39ff9a` | Salió bien |
+| Rojo | `#ff3d71` | Falló |
+| Naranja | `#ff9e64` | El cangrejo |
 
-Text sits on night-blue surfaces from `#14141f` to `#1f2030`. Every text color keeps at least 4.7:1 contrast on all of them, and the dimmest label color keeps 5.3:1.
+El texto va sobre superficies azul noche, de `#14141f` a `#1f2030`. Todos los colores de texto guardan un contraste de 4.7:1 o más en cualquiera de ellas, y el color de etiqueta más apagado guarda 5.3:1.
 
-![The city backdrop: a skyline under a striped sun, with a neon grid below](docs/backdrop.png)
+![La ciudad de fondo: un horizonte de edificios bajo un sol de franjas, con una grilla de neón abajo](docs/backdrop.png)
 
-## Limits
+## Límites
 
-- Built and tested on Windows, in the desktop app, against Claude Code 2.1.325. The mod API is early access and may change between releases.
-- On a Claude Code build that does not take app colors yet, the mod falls back to the backdrop alone.
-- The end-of-task sound plays through PowerShell on Windows and through Claude Code's own player on macOS. It has not been tried on macOS or Linux, and a Linux terminal has no player, so expect silence there.
-- The look is dark only. The city has no daytime.
+- Hecho y probado en Windows, en la app de escritorio, con Claude Code 2.1.325. La API de mods es de acceso anticipado y puede cambiar de una versión a otra.
+- En una versión de Claude Code que todavía no acepta colores para la app, el mod pone sólo la ciudad de fondo.
+- El sonido de fin de tarea sale por PowerShell en Windows y por el reproductor propio de Claude Code en macOS. No se probó en macOS ni en Linux, y una terminal de Linux no tiene reproductor: ahí, silencio.
+- El look es sólo oscuro. La ciudad no tiene versión de día.
 
-## Development
+## Desarrollo
 
 ```
 claude plugin validate .
@@ -110,32 +110,14 @@ claude plugin test .
 node tools/preview.mjs
 ```
 
-The last one writes `tools/preview.html` with all the art: the palette, every mood and outfit, the subagent crabs, the equalizer and the backdrop. It needs Node 22.15 or newer.
+El último escribe `tools/preview.html` con todo el arte: la paleta, cada humor y cada pilcha, los cangrejos de los subagentes, el ecualizador y el fondo. Pide Node 22.15 o más nuevo.
 
-The art is plain SVG built in [`hooks/scene.ts`](hooks/scene.ts), and the crab's lines and outfits are in [`hooks/fun.ts`](hooks/fun.ts). Code comments are in Spanish.
+El arte es SVG puro armado en [`hooks/scene.ts`](hooks/scene.ts); las frases y la ropa del cangrejo están en [`hooks/fun.ts`](hooks/fun.ts), y todos los textos en los dos idiomas, en [`hooks/i18n.ts`](hooks/i18n.ts).
 
-## Credits
+## Créditos
 
-The night is in the spirit of [Tokyo Night](https://github.com/tokyo-night/tokyo-night-vscode-theme) by enkia. `hooks/make-colors.js` is the color generator from Claude Code's plugin authoring kit, copied in as that kit instructs. The sound is generated by `sounds/make_tunga.py`. The sign on the tower reads カニ, "kani", Japanese for crab.
+La noche sigue el espíritu de [Tokyo Night](https://github.com/tokyo-night/tokyo-night-vscode-theme), de enkia. `hooks/make-colors.js` es el generador de colores del kit de mods de Claude Code, copiado tal como ese kit indica. El sonido lo genera `sounds/make_tunga.py`. El cartel de la torre dice カニ, «kani», cangrejo en japonés.
 
-This is an independent mod and is not affiliated with or endorsed by Anthropic.
+Es un mod independiente: no está afiliado a Anthropic ni cuenta con su aval.
 
-MIT licensed. See [LICENSE](LICENSE).
-
-## En español
-
-Tokyo Cyber Crab es un mod para Claude Code: un cangrejo pixelado cordobés al lado del chat. Un panel muestra en vivo cada paso de Claude mientras el cangrejo recorre su ciudad de neón: labura cuando Claude labura, salta cuando la tarea sale, se llena de interferencia cuando algo falla y duerme la siesta entre pedido y pedido. En la app de escritorio toda la ventana toma los mismos colores, con Neo-Córdoba de fondo.
-
-Se instala con la misma línea de arriba. Sale en inglés; para dejarlo en castellano, con los comandos `/cangrejo`, `/cangrejo-ropa`, `/cangrejo-opina`, `/cyber-sonido` y `/cyber`, poné `"language": "es"` en las opciones del mod:
-
-```json
-{
-  "pluginConfigs": {
-    "tokyo-crab@tokyo-crab": {
-      "options": { "language": "es", "name": "tu nombre" }
-    }
-  }
-}
-```
-
-El tema de colores para la terminal está en `themes/neo-cordoba.json`.
+Licencia MIT. Ver [LICENSE](LICENSE).

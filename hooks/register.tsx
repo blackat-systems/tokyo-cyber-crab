@@ -147,7 +147,7 @@ const clip = (s: string, n = 60) => {
 export const stripCd = (cmd: string) =>
   cmd.replace(/^\s*(cd|Set-Location|pushd)\s+("[^"]*"|'[^']*'|\S+)\s*(&&|;)\s*/i, '').trim()
 
-export function labelFor(tool: string, input: Record<string, unknown>, lang: Lang = 'en'): string {
+export function labelFor(tool: string, input: Record<string, unknown>, lang: Lang = 'es'): string {
   const str = (k: string) => (typeof input[k] === 'string' ? (input[k] as string) : '')
   const short = tool.startsWith('mcp__') ? tool.split('__').slice(2).join(' ') || tool : tool
   const verb = STRINGS[lang].verbs[tool] ?? short
@@ -227,7 +227,7 @@ export function groupSteps(list: Step[]): Step[] {
 export function bandState(
   m: Mood,
   isWorking: boolean,
-  lang: Lang = 'en',
+  lang: Lang = 'es',
 ): { text: string; dot: string; color: string } {
   const t = STRINGS[lang].band
   if (m === 'error' && !isWorking) return { text: t.static, dot: P.red, color: P.red }
@@ -249,7 +249,7 @@ export function fmtWork(ms: number): string {
  * La palabra de espera de este turno: cambia de un pedido al otro, no mientras gira.
  * Mientras corre una herramienta no hay palabra: ahí la app dice qué paso es.
  */
-export function waitingWord(mode: string, turn: number, lang: Lang = 'en'): string | undefined {
+export function waitingWord(mode: string, turn: number, lang: Lang = 'es'): string | undefined {
   if (mode !== 'thinking' && mode !== 'requesting' && mode !== 'responding') return undefined
   const pool = STRINGS[lang].waiting[mode]
   return pool[turn % pool.length]

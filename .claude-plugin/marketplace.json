@@ -1,12 +1,14 @@
 {
   "name": "tokyo-crab",
-  "description": "Tokyo Cyber Crab, a neon-city mod for Claude Code with an animated pixel crab",
-  "owner": { "name": "Joa" },
+  "description": "Tokyo Cyber Crab, un mod de ciudad de neón para Claude Code con un cangrejo pixelado",
+  "owner": {
+    "name": "Joa"
+  },
   "plugins": [
     {
       "name": "tokyo-crab",
       "source": "./",
-      "description": "A live side panel of Claude's steps with an animated pixel crab, and a neon-city look for the app"
+      "description": "Un panel en vivo con los pasos de Claude y un cangrejo pixelado, y un look de ciudad de neón para la app"
     }
   ]
 }

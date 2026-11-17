@@ -18,11 +18,30 @@ export type Strings = {
   verbs: Record<string, string>
   mood: Record<Mood, string>
   agent: Record<AgentStatus, string>
-  band: { static: string; live: string; done: string; online: string }
+  band: { static: string; live: string; done: string; online: string; context: (percent: number) => string }
   closing: { ok: string; failed: string; steps: (n: number) => string; fails: (n: number) => string }
   pane: {
     wearing: (outfit: string) => string
     counter: (done: string, running: number) => string
+    steps: string
+    /** Los rótulos de las pestañas del panel. */
+    tabs: Record<'steps' | 'plan' | 'agents' | 'score', string>
+    /** Lo que tiene cada sección adentro, en corto, al lado de su nombre. */
+    summary: {
+      stepsNone: string
+      steps: (done: number, running: number) => string
+      plan: (done: number, total: number) => string
+      agentsNone: string
+      agentsLive: (n: number) => string
+      agentsDone: (n: number) => string
+      score: (prompts: number, work: string) => string
+    }
+    /** Cuántos pasos viejos no entran en la lista. */
+    earlier: (n: number) => string
+    prompts: (n: number) => string
+    context: string
+    contextUse: (used: string, total: string, left: string) => string
+    contextUnread: (total: string) => string
     plan: string
     empty: string
     subagents: string
@@ -78,7 +97,13 @@ const es: Strings = {
   },
   mood: { idle: 'durmiendo la siesta', working: 'trabajando', done: '¡listo!', error: 'algo falló' },
   agent: { running: 'trabajando', done: 'terminó', error: 'falló' },
-  band: { static: 'interferencia', live: 'transmitiendo', done: 'listo el pollo', online: 'en línea' },
+  band: {
+    static: 'interferencia',
+    live: 'transmitiendo',
+    done: 'listo el pollo',
+    online: 'en línea',
+    context: percent => `contexto ${percent}%`,
+  },
   closing: {
     ok: 'listo el pollo',
     failed: 'cerrado con fallas',
@@ -87,13 +112,35 @@ const es: Strings = {
   },
   pane: {
     wearing: outfit => `hoy viene con ${outfit}`,
-    counter: (done, running) => `▸ ${done} hechos${running ? ` · ${running} en curso` : ''}`,
+    counter: (done, running) => `${done} hechos${running ? ` · ${running} en curso` : ''}`,
+    steps: 'PASOS',
+    tabs: {
+      steps: 'Qué está haciendo Claude',
+      plan: 'Lista de tareas',
+      agents: 'Otros Claude ayudando',
+      score: 'Resumen de la sesión',
+    },
+    summary: {
+      stepsNone: 'Todavía nada en este pedido',
+      steps: (done, running) =>
+        `${done} ${done === 1 ? 'acción hecha' : 'acciones hechas'}${running > 0 ? ` · ${running} en curso` : ''}`,
+      plan: (done, total) => `${done} de ${total} tareas terminadas`,
+      agentsNone: 'Ninguno por ahora',
+      agentsLive: n => `${n} trabajando ahora`,
+      agentsDone: n => `${n} ${n === 1 ? 'ya terminó' : 'ya terminaron'}`,
+      score: (prompts, work) => `${prompts} ${prompts === 1 ? 'pedido' : 'pedidos'} · ${work} de laburo`,
+    },
+    earlier: n => `+ ${n} ${n === 1 ? 'paso anterior' : 'pasos anteriores'}`,
+    prompts: n => `${n} ${n === 1 ? 'pedido' : 'pedidos'}`,
+    context: 'CONTEXTO',
+    contextUse: (used, total, left) => `${used} de ${total} · quedan ${left}`,
+    contextUnread: total => `ventana de ${total} · todavía sin medir`,
     plan: 'PLAN DEL CANGREJO',
-    empty: 'Todavía no hay pasos en este pedido.',
+    empty: 'Acá aparece cada cosa que hace Claude: los archivos que lee, lo que cambia y los comandos que corre. Lo más nuevo, arriba.',
     subagents: 'SUBAGENTES',
-    agentsLive: n => `· ${n} trabajando`,
-    agentsDone: '· todos terminaron',
-    agentsNone: '· ninguno ahora',
+    agentsLive: n => `${n} trabajando ahora`,
+    agentsDone: 'Todos terminaron.',
+    agentsNone: 'Cuando Claude reparte un trabajo grande entre otros Claude, acá aparece cada uno con lo que está haciendo.',
     tools: n => `${n} ${n === 1 ? 'herr.' : 'herrs.'}`,
     more: n => `+ ${n} más`,
     score: 'MARCADOR',
@@ -169,7 +216,13 @@ const en: Strings = {
   },
   mood: { idle: 'taking a siesta', working: 'working', done: 'done!', error: 'something broke' },
   agent: { running: 'working', done: 'finished', error: 'failed' },
-  band: { static: 'static', live: 'on air', done: 'nailed it', online: 'online' },
+  band: {
+    static: 'static',
+    live: 'on air',
+    done: 'nailed it',
+    online: 'online',
+    context: percent => `context ${percent}%`,
+  },
   closing: {
     ok: 'nailed it',
     failed: 'closed with failures',
@@ -178,13 +231,35 @@ const en: Strings = {
   },
   pane: {
     wearing: outfit => `today's look: ${outfit}`,
-    counter: (done, running) => `▸ ${done} done${running ? ` · ${running} running` : ''}`,
+    counter: (done, running) => `${done} done${running ? ` · ${running} running` : ''}`,
+    steps: 'STEPS',
+    tabs: {
+      steps: 'What Claude is doing',
+      plan: 'Task list',
+      agents: 'Other Claudes helping',
+      score: 'Session summary',
+    },
+    summary: {
+      stepsNone: 'Nothing yet in this request',
+      steps: (done, running) =>
+        `${done} ${done === 1 ? 'action done' : 'actions done'}${running > 0 ? ` · ${running} running` : ''}`,
+      plan: (done, total) => `${done} of ${total} tasks finished`,
+      agentsNone: 'None right now',
+      agentsLive: n => `${n} working right now`,
+      agentsDone: n => `${n} finished`,
+      score: (prompts, work) => `${prompts} ${prompts === 1 ? 'prompt' : 'prompts'} · ${work} of work`,
+    },
+    earlier: n => `+ ${n} earlier ${n === 1 ? 'step' : 'steps'}`,
+    prompts: n => `${n} ${n === 1 ? 'prompt' : 'prompts'}`,
+    context: 'CONTEXT',
+    contextUse: (used, total, left) => `${used} of ${total} · ${left} left`,
+    contextUnread: total => `${total} window · not measured yet`,
     plan: "CRAB'S PLAN",
-    empty: 'No steps in this request yet.',
+    empty: 'Everything Claude does shows up here: the files it reads, what it changes and the commands it runs. Newest on top.',
     subagents: 'SUBAGENTS',
-    agentsLive: n => `· ${n} working`,
-    agentsDone: '· all finished',
-    agentsNone: '· none right now',
+    agentsLive: n => `${n} working right now`,
+    agentsDone: 'All finished.',
+    agentsNone: 'When Claude splits a big job among other Claudes, each one shows up here with what it is doing.',
     tools: n => `${n} ${n === 1 ? 'tool' : 'tools'}`,
     more: n => `+ ${n} more`,
     score: 'SCOREBOARD',

@@ -6,10 +6,10 @@ import { P } from './palette'
 // El nombre de la escena: la ciudad de neón que dibuja el hook de Backdrop.
 export const BACKDROP = 'neo-cba'
 // Vidrio ahumado sobre la ciudad: primero que se lea, después que se luzca.
-// Con 0.8 y 12 la ciudad quedaba en una mancha; con 0.5 se distinguen los edificios
-// pero el sol peleaba con las letras. 0.55 con el tinte de la página deja el texto
-// en 6:1 aun en lo más claro del sol, y la ciudad se sigue viendo.
-export const GLASS = { blur: 4, tint: P.s0, opacity: 0.55 } as const
+// Con 0.8 y 12 la ciudad quedaba en una mancha; con 0.55 y 4 se veía linda pero las
+// ventanas punteaban entre los renglones y costaba leer. La lectura se arregla sobre todo
+// en el dibujo (ver BG_DIM en scene.ts); acá el vidrio sólo termina de fundir los puntos.
+export const GLASS = { blur: 6, tint: P.s0, opacity: 0.62 } as const
 
 // Los colores de toda la app salen de la misma paleta que el panel y la ciudad:
 // magenta de acento, cian y violeta de neón sobre el azul noche de Tokyo Night.

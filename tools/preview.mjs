@@ -53,6 +53,7 @@ const html = `<!doctype html><meta charset="utf-8"><title>Tokyo Cyber Crab · pr
 <h2>CON PLAN Y ROPA</h2><div class="row">${moods.map((m, i) => cell(`${m} · ${fun.OUTFITS[i * 3].name.en}`, scene.crabSvg(m, m === 'done' ? 1 : 0.4, i * 3))).join('')}</div>
 <h2>TODA LA ROPA</h2><div class="row">${fun.OUTFITS.map((o, i) => cell(`${i} · ${o.name.en}`, scene.crabSvg('done', undefined, i), 290)).join('')}</div>
 <h2>SUBAGENTES Y ECUALIZADOR</h2><div class="row">${['running', 'done', 'error'].map((s, i) => cell(s, scene.miniCrabSvg(s, i), 84)).join('')}${cell('sonando', scene.eqSvg(true))}${cell('quieto', scene.eqSvg(false))}</div>
+<h2>MEDIDORES</h2><div class="row">${[[0.12,P.cyan],[0.46,P.cyan],[0.74,P.yellow],[0.93,P.red]].map(([f,c]) => cell(`contexto ${Math.round(f*100)}%`, scene.gaugeSvg(f, c, [0.7, 0.9]), 300)).join('')}${cell('plan 3/5', scene.gaugeSvg(0.6, P.cyan), 300)}${cell('plan listo', scene.gaugeSvg(1, P.green), 300)}${cell('sin medir', scene.gaugeSvg(undefined, P.muted, [0.7, 0.9]), 300)}</div>
 <h2>EL FONDO</h2><div class="bd">${img(scene.backdropSvg(), 'height:100%')}</div>`
 
 const out = resolve(process.argv[2] ?? join(here, 'preview.html'))

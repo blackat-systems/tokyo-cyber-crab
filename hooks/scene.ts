@@ -97,9 +97,16 @@ export function miniCrabSvg(status: AgentStatus, outfitIndex?: number): string {
 
 // ---------- La escena: Neo-Córdoba de noche ----------
 
+// La escena es casi tan alta como una pantalla de cine (16:9): en un panel angosto,
+// una tira baja dejaba al cangrejo y a su pista del tamaño de una estampilla.
 const SCENE_W = 400
-const SCENE_H = 120
-const GROUND = 104
+const SCENE_H = 225
+const GROUND = 186
+/** El lado de cada píxel del cangrejo grande. */
+const CRAB_PX = 7
+/** Dónde va la pista de avance, y cuánto mide de alto. */
+const TRACK_Y = GROUND + 13
+const TRACK_H = 8
 
 /** Números «al azar» que salen siempre iguales: la ciudad no cambia entre dibujos. */
 function seeded(seed: number): () => number {
@@ -114,61 +121,61 @@ function seeded(seed: number): () => number {
 const windowGlow = (m: Mood) =>
   m === 'error' ? [P.red, P.redDeep, P.sunMid] : [P.cyan, P.yellow, P.magenta, P.violet]
 
+/** Las ventanas de un edificio: una grilla de cuadraditos, algunos prendidos y alguno que titila. */
+function windows(x: number, top: number, w: number, m: Mood, rnd: () => number, lit: number): string {
+  const glow = windowGlow(m)
+  let out = ''
+  for (let wy = top + 6; wy < GROUND - 7; wy += 9) {
+    for (let wx = x + 4; wx < x + w - 6; wx += 8) {
+      const r = rnd()
+      if (r > lit) continue
+      const color = glow[Math.floor(rnd() * glow.length)]!
+      const blink = r < 0.07 ? ` class="w w${1 + Math.floor(rnd() * 3)}"` : ''
+      out += `<rect${blink} x="${wx}" y="${wy}" width="4" height="5" fill="${color}" opacity="${m === 'idle' ? 0.4 : 0.8}"/>`
+    }
+  }
+  return out
+}
+
 /** Edificios pixelados con ventanitas; algunas titilan. */
 function skyline(m: Mood): { far: string; near: string } {
   const rnd = seeded(7)
   const lit = m === 'idle' ? 0.26 : m === 'error' ? 0.5 : 0.6
-  const glow = windowGlow(m)
   let far = ''
   let near = ''
   for (let x = 0; x < SCENE_W; ) {
-    const w = 14 + Math.floor(rnd() * 14)
-    const h = 22 + Math.floor(rnd() * 26)
-    far += `<rect x="${x}" y="${GROUND - h - 14}" width="${w}" height="${h + 14}" fill="${P.farBuilding}"/>`
-    x += w + 2
+    const w = 20 + Math.floor(rnd() * 22)
+    const h = 62 + Math.floor(rnd() * 48)
+    far += `<rect x="${x}" y="${GROUND - h}" width="${w}" height="${h}" fill="${P.farBuilding}"/>`
+    x += w + 3
   }
-  for (let x = -4; x < SCENE_W; ) {
-    const w = 18 + Math.floor(rnd() * 18)
-    const h = 18 + Math.floor(rnd() * 44)
+  for (let x = -6; x < SCENE_W; ) {
+    const w = 26 + Math.floor(rnd() * 26)
+    const h = 30 + Math.floor(rnd() * 72)
     const top = GROUND - h
     near += `<rect x="${x}" y="${top}" width="${w}" height="${h}" fill="${P.nearBuilding}"/>`
     // antena en algunos
-    if (rnd() > 0.6) near += `<rect x="${x + Math.floor(w / 2)}" y="${top - 7}" width="1" height="7" fill="${P.faint}"/><rect class="w w2" x="${x + Math.floor(w / 2) - 1}" y="${top - 9}" width="3" height="2" fill="${P.red}"/>`
-    for (let wy = top + 4; wy < GROUND - 5; wy += 6) {
-      for (let wx = x + 3; wx < x + w - 4; wx += 5) {
-        const r = rnd()
-        if (r > lit) continue
-        const color = glow[Math.floor(rnd() * glow.length)]!
-        const blink = r < 0.08 ? ` class="w w${1 + Math.floor(rnd() * 3)}"` : ''
-        near += `<rect${blink} x="${wx}" y="${wy}" width="3" height="3" fill="${color}" opacity="${m === 'idle' ? 0.4 : 0.8}"/>`
-      }
-    }
-    x += w + 3
+    if (rnd() > 0.6) near += `<rect x="${x + Math.floor(w / 2)}" y="${top - 11}" width="1" height="11" fill="${P.faint}"/><rect class="w w2" x="${x + Math.floor(w / 2) - 1}" y="${top - 14}" width="3" height="3" fill="${P.red}"/>`
+    near += windows(x, top, w, m, rnd, lit)
+    x += w + 4
   }
   return { far, near }
 }
 
 /** Una torre dibujada a mano, para que los carteles tengan de dónde colgar. */
 function tower(x: number, top: number, w: number, m: Mood, seed: number): string {
-  const rnd = seeded(seed)
-  const glow = windowGlow(m)
-  let out =
+  return (
     `<rect x="${x}" y="${top}" width="${w}" height="${GROUND - top}" fill="${P.nearBuilding}"/>` +
-    `<rect x="${x}" y="${top}" width="${w}" height="1" fill="${P.line}"/>`
-  for (let wy = top + 5; wy < GROUND - 5; wy += 6) {
-    for (let wx = x + 3; wx < x + w - 4; wx += 5) {
-      if (rnd() > (m === 'idle' ? 0.3 : 0.62)) continue
-      out += `<rect x="${wx}" y="${wy}" width="3" height="3" fill="${glow[Math.floor(rnd() * glow.length)]!}" opacity="${m === 'idle' ? 0.4 : 0.8}"/>`
-    }
-  }
-  return out
+    `<rect x="${x - 1}" y="${top}" width="${w + 2}" height="2" fill="${P.line}"/>` +
+    windows(x, top, w, m, seeded(seed), m === 'idle' ? 0.3 : 0.62)
+  )
 }
 
 /** El sol de neón partido en franjas, bien outrun, detrás de la ciudad. */
 function neonSun(m: Mood): string {
-  const cx = 318
-  const cy = 50
-  const r = 27
+  const cx = 316
+  const cy = 92
+  const r = 48
   const stops =
     m === 'error'
       ? `<stop offset="0" stop-color="${P.sunMid}"/><stop offset="1" stop-color="${P.red}"/>`
@@ -177,15 +184,15 @@ function neonSun(m: Mood): string {
   const cut = m === 'error' ? '#241019' : '#1f1638'
   // franjas sólo en la mitad de abajo, cada vez más gruesas: el sol de neón de siempre
   let cuts = ''
-  for (let i = 0; i < 4; i++) {
-    cuts += `<rect x="${cx - r}" y="${cy + 3 + i * 6}" width="${r * 2}" height="${1.5 + i * 0.6}" fill="${cut}"/>`
+  for (let i = 0; i < 5; i++) {
+    cuts += `<rect x="${cx - r}" y="${cy + 5 + i * 9}" width="${r * 2}" height="${2 + i * 0.9}" fill="${cut}"/>`
   }
   return (
     `<defs><linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">${stops}</linearGradient>` +
     `<radialGradient id="halo"><stop offset=".35" stop-color="${halo}" stop-opacity=".34"/><stop offset="1" stop-color="${halo}" stop-opacity="0"/></radialGradient>` +
     `<clipPath id="half"><rect x="0" y="0" width="${SCENE_W}" height="${GROUND}"/></clipPath></defs>` +
     `<g clip-path="url(#half)" opacity="${m === 'idle' ? 0.5 : 1}">` +
-    `<circle cx="${cx}" cy="${cy}" r="${r * 2.4}" fill="url(#halo)"/>` +
+    `<circle cx="${cx}" cy="${cy}" r="${r * 2.2}" fill="url(#halo)"/>` +
     `<circle class="sun" cx="${cx}" cy="${cy}" r="${r}" fill="url(#sun)"/>${cuts}</g>`
   )
 }
@@ -197,19 +204,19 @@ function signs(m: Mood): string {
   const b = m === 'error' ? P.red : P.cyan
   return (
     // la torre del cartel vertical, con dos brazos que lo sostienen
-    tower(248, 34, 17, m, 41) +
-    `<rect x="244" y="45" width="4" height="1" fill="${P.faint}"/><rect x="244" y="72" width="4" height="1" fill="${P.faint}"/>` +
+    tower(252, 58, 26, m, 41) +
+    `<rect x="246" y="76" width="6" height="2" fill="${P.faint}"/><rect x="246" y="122" width="6" height="2" fill="${P.faint}"/>` +
     `<g class="${off ? 'sign slow' : 'sign'}">` +
-    `<rect x="229" y="40" width="15" height="38" fill="${P.void}" stroke="${a}" stroke-width="1"/>` +
-    `<text x="236.5" y="55" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="${a}">カ</text>` +
-    `<text x="236.5" y="72" text-anchor="middle" font-family="monospace" font-size="11" font-weight="bold" fill="${a}">ニ</text>` +
+    `<rect x="224" y="68" width="22" height="62" fill="${P.void}" stroke="${a}" stroke-width="1.5"/>` +
+    `<text x="235" y="93" text-anchor="middle" font-family="monospace" font-size="17" font-weight="bold" fill="${a}">カ</text>` +
+    `<text x="235" y="121" text-anchor="middle" font-family="monospace" font-size="17" font-weight="bold" fill="${a}">ニ</text>` +
     `</g>` +
     // la torre del cartel de techo, parado sobre dos patas
-    tower(144, 46, 42, m, 59) +
-    `<rect x="150" y="40" width="1" height="6" fill="${P.faint}"/><rect x="179" y="40" width="1" height="6" fill="${P.faint}"/>` +
+    tower(132, 86, 66, m, 59) +
+    `<rect x="142" y="76" width="2" height="10" fill="${P.faint}"/><rect x="186" y="76" width="2" height="10" fill="${P.faint}"/>` +
     `<g class="sign s2">` +
-    `<rect x="142" y="28" width="46" height="12" fill="${P.void}" stroke="${b}" stroke-width="1"/>` +
-    `<text x="165" y="37" text-anchor="middle" font-family="monospace" font-size="8" font-weight="bold" fill="${b}">FERNET</text>` +
+    `<rect x="130" y="56" width="70" height="20" fill="${P.void}" stroke="${b}" stroke-width="1.5"/>` +
+    `<text x="165" y="71" text-anchor="middle" font-family="monospace" font-size="13" font-weight="bold" fill="${b}">FERNET</text>` +
     `</g>`
   )
 }
@@ -219,18 +226,19 @@ export function crabSvg(m: Mood, progress?: number, outfitIndex?: number): strin
   const body = pal.O
   const W = SCENE_W
   const H = SCENE_H
-  const crabW = 16 * PX
-  const crabH = 10 * PX
+  const px = CRAB_PX
+  const crabW = 16 * px
+  const crabH = 10 * px
   const tag = m === 'working' ? 'REC' : m === 'done' ? 'OK' : m === 'error' ? 'ERR' : 'ZZZ'
   const tagColor = m === 'working' ? P.red : m === 'done' ? P.green : m === 'error' ? P.red : P.muted
 
   const css = `
     .scene{animation:${m === 'working' ? (progress === undefined ? 'walk 3.6s ease-in-out infinite alternate' : 'pace .9s ease-in-out infinite alternate') : 'none'}}
-    @keyframes pace{from{transform:translateX(-4px)}to{transform:translateX(4px)}}
+    @keyframes pace{from{transform:translateX(-5px)}to{transform:translateX(5px)}}
     @keyframes walk{from{transform:translateX(0)}to{transform:translateX(${W - crabW - 40}px)}}
     .flag{animation:wave .5s ease-in-out infinite alternate;transform-box:fill-box;transform-origin:left center}
     @keyframes wave{from{transform:skewY(-8deg)}to{transform:skewY(8deg)}}
-    .crab{transform-box:fill-box;transform-origin:center bottom;filter:drop-shadow(0 0 3px ${body});
+    .crab{transform-box:fill-box;transform-origin:center bottom;filter:drop-shadow(0 0 4px ${body});
       animation:${
         m === 'working'
           ? 'bob .32s steps(2) infinite'
@@ -243,16 +251,16 @@ export function crabSvg(m: Mood, progress?: number, outfitIndex?: number): strin
     .clawL{transform-box:fill-box;transform-origin:right bottom;animation:${m === 'idle' ? 'none' : 'snapL .35s ease-in-out infinite alternate'}}
     .clawR{transform-box:fill-box;transform-origin:left bottom;animation:${m === 'idle' ? 'none' : 'snapR .35s ease-in-out infinite alternate'}}
     .legs{animation:${m === 'working' ? 'legs .16s steps(2) infinite' : 'none'}}
-    @keyframes bob{from{transform:translateY(0)}to{transform:translateY(-2px)}}
+    @keyframes bob{from{transform:translateY(0)}to{transform:translateY(-3px)}}
     @keyframes breathe{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.94)}}
-    @keyframes hop{0%{transform:translateY(0)}40%{transform:translateY(-14px)}100%{transform:translateY(0)}}
-    @keyframes shake{0%{transform:translateX(-2px)}50%{transform:translateX(2px)}100%{transform:translateX(-2px)}}
+    @keyframes hop{0%{transform:translateY(0)}40%{transform:translateY(-22px)}100%{transform:translateY(0)}}
+    @keyframes shake{0%{transform:translateX(-3px)}50%{transform:translateX(3px)}100%{transform:translateX(-3px)}}
     @keyframes snapL{from{transform:rotate(0)}to{transform:rotate(-14deg)}}
     @keyframes snapR{from{transform:rotate(0)}to{transform:rotate(14deg)}}
-    @keyframes legs{from{transform:translateY(0)}to{transform:translateY(-1px)}}
-    .z{fill:${P.violet};font:bold 11px monospace;opacity:0;animation:zz 2.4s ease-in infinite}
+    @keyframes legs{from{transform:translateY(0)}to{transform:translateY(-2px)}}
+    .z{fill:${P.violet};font:bold 15px monospace;opacity:0;animation:zz 2.4s ease-in infinite}
     .z2{animation-delay:.8s}.z3{animation-delay:1.6s}
-    @keyframes zz{0%{opacity:0;transform:translate(0,0)}30%{opacity:1}100%{opacity:0;transform:translate(14px,-22px)}}
+    @keyframes zz{0%{opacity:0;transform:translate(0,0)}30%{opacity:1}100%{opacity:0;transform:translate(20px,-32px)}}
     .w{animation:blink 2.6s steps(2) infinite}.w2{animation-delay:.9s}.w3{animation-delay:1.7s}
     @keyframes blink{0%,70%{opacity:.9}71%,100%{opacity:.15}}
     .sign{animation:neon 3.4s steps(1) infinite}.s2{animation-delay:1.3s}.slow{animation-duration:6s}
@@ -261,11 +269,11 @@ export function crabSvg(m: Mood, progress?: number, outfitIndex?: number): strin
     @keyframes sun{from{opacity:.85}to{opacity:1}}
     .rain{stroke:${P.cyan};stroke-width:1;opacity:.3;animation:rain .5s linear infinite}
     .r2{animation-delay:.17s}.r3{animation-delay:.33s}
-    @keyframes rain{from{transform:translate(0,-18px)}to{transform:translate(-8px,18px)}}
+    @keyframes rain{from{transform:translate(0,-26px)}to{transform:translate(-11px,26px)}}
     .glitch{fill:${P.red};opacity:0;animation:glitch .9s steps(1) infinite}
     .g2{animation-delay:.3s}.g3{animation-delay:.6s}
     @keyframes glitch{0%{opacity:0}10%{opacity:.5;transform:translateX(6px)}20%{opacity:0}55%{opacity:.35;transform:translateX(-9px)}65%,100%{opacity:0}}
-    .boom{fill:none;stroke-width:2;stroke-dasharray:2 5;transform-box:fill-box;transform-origin:center;opacity:0;animation:boom 1.5s ease-out infinite}
+    .boom{fill:none;stroke-width:2.5;stroke-dasharray:3 7;transform-box:fill-box;transform-origin:center;opacity:0;animation:boom 1.5s ease-out infinite}
     .b2{animation-delay:.5s}.b3{animation-delay:1s}
     @keyframes boom{0%{opacity:0;transform:scale(.2)}20%{opacity:1}100%{opacity:0;transform:scale(1.5)}}
     .rec{animation:${m === 'working' ? 'rec 1s steps(2) infinite' : 'none'}}
@@ -274,80 +282,82 @@ export function crabSvg(m: Mood, progress?: number, outfitIndex?: number): strin
 
   const crab =
     `<g class="crab">` +
-    `<g class="clawL">${pixels(CLAW_L, 0, 0, pal)}</g>` +
-    `<g class="clawR">${pixels(CLAW_R, 10, 0, pal)}</g>` +
-    pixels(BODY, 0, 3, pal) +
-    `<g class="legs">${pixels(LEGS, 0, 9, pal)}</g>` +
-    `<g class="outfit">${outfitPixels(outfitIndex === undefined ? undefined : OUTFITS[outfitIndex], pixels)}</g>` +
+    `<g class="clawL">${pixels(CLAW_L, 0, 0, pal, px)}</g>` +
+    `<g class="clawR">${pixels(CLAW_R, 10, 0, pal, px)}</g>` +
+    pixels(BODY, 0, 3, pal, px) +
+    `<g class="legs">${pixels(LEGS, 0, 9, pal, px)}</g>` +
+    `<g class="outfit">${outfitPixels(outfitIndex === undefined ? undefined : OUTFITS[outfitIndex], pixels, px)}</g>` +
     `</g>`
 
   // lo que acompaña al cangrejo según cómo anda
   const extras =
     m === 'idle'
-      ? `<text class="z" x="${crabW + 14}" y="30">z</text><text class="z z2" x="${crabW + 14}" y="30">z</text><text class="z z3" x="${crabW + 14}" y="30">Z</text>`
+      ? `<text class="z" x="${crabW + 16}" y="38">z</text><text class="z z2" x="${crabW + 16}" y="38">z</text><text class="z z3" x="${crabW + 16}" y="38">Z</text>`
       : ''
 
   // estrellas: pocas y quietas, sólo en lo alto del cielo
   const starRnd = seeded(19)
   let stars = ''
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 34; i++) {
     const x = Math.floor(starRnd() * W)
-    const y = 4 + Math.floor(starRnd() * 40)
+    const y = 6 + Math.floor(starRnd() * 78)
     stars += `<rect x="${x}" y="${y}" width="1" height="1" fill="${P.text}" opacity="${(0.2 + starRnd() * 0.4).toFixed(2)}"/>`
   }
 
   let weather = ''
   if (m === 'working') {
     const rnd = seeded(3)
-    for (let i = 0; i < 26; i++) {
-      const x = Math.floor(rnd() * (W + 20))
-      const y = Math.floor(rnd() * (GROUND - 10))
-      weather += `<line class="rain r${1 + (i % 3)}" x1="${x}" y1="${y}" x2="${x - 3}" y2="${y + 7}"/>`
+    for (let i = 0; i < 40; i++) {
+      const x = Math.floor(rnd() * (W + 24))
+      const y = Math.floor(rnd() * (GROUND - 14))
+      weather += `<line class="rain r${1 + (i % 3)}" x1="${x}" y1="${y}" x2="${x - 4}" y2="${y + 10}"/>`
     }
   } else if (m === 'done') {
     weather =
-      `<circle class="boom" cx="92" cy="30" r="14" stroke="${P.yellow}"/>` +
-      `<circle class="boom b2" cx="212" cy="24" r="16" stroke="${P.green}"/>` +
-      `<circle class="boom b3" cx="352" cy="34" r="12" stroke="${P.cyan}"/>`
+      `<circle class="boom" cx="84" cy="48" r="22" stroke="${P.yellow}"/>` +
+      `<circle class="boom b2" cx="206" cy="36" r="26" stroke="${P.green}"/>` +
+      `<circle class="boom b3" cx="350" cy="52" r="19" stroke="${P.cyan}"/>`
   } else if (m === 'error') {
     weather =
-      `<rect class="glitch" x="0" y="26" width="${W}" height="4"/>` +
-      `<rect class="glitch g2" x="0" y="61" width="${W}" height="7"/>` +
-      `<rect class="glitch g3" x="0" y="88" width="${W}" height="3"/>`
+      `<rect class="glitch" x="0" y="46" width="${W}" height="6"/>` +
+      `<rect class="glitch g2" x="0" y="108" width="${W}" height="11"/>` +
+      `<rect class="glitch g3" x="0" y="158" width="${W}" height="5"/>`
   }
 
   // vereda mojada: línea de neón, su reflejo y, si hay plan, la pista de avance hasta la banderita
   const line = m === 'error' ? P.red : P.cyan
   let floor =
     `<rect x="0" y="${GROUND}" width="${W}" height="${H - GROUND}" fill="${P.void}"/>` +
-    `<rect x="0" y="${GROUND + 1}" width="${W}" height="5" fill="url(#wet)"/>` +
-    `<rect x="0" y="${GROUND}" width="${W}" height="1" fill="${line}" opacity=".9"/>`
-  let crabX = 14
+    `<rect x="0" y="${GROUND + 2}" width="${W}" height="9" fill="url(#wet)"/>` +
+    `<rect x="0" y="${GROUND}" width="${W}" height="2" fill="${line}" opacity=".9"/>`
+  let crabX = 16
   if (progress === undefined) {
-    for (let x = 6; x < W; x += 22) {
-      floor += `<rect x="${x}" y="${GROUND + 8}" width="10" height="2" fill="${P.line}"/>`
+    // sin plan, la calle: rayas de la senda
+    for (let x = 8; x < W; x += 30) {
+      floor += `<rect x="${x}" y="${TRACK_Y + 2}" width="15" height="3" fill="${P.line}"/>`
     }
   } else {
-    const x0 = 14
-    const x1 = W - 26
-    const segs = 28
+    const x0 = 16
+    const x1 = W - 30
+    const segs = 24
     const segW = (x1 - x0) / segs
     for (let i = 0; i < segs; i++) {
       const filled = (i + 1) / segs <= progress + 1e-9
-      floor += `<rect x="${(x0 + i * segW).toFixed(1)}" y="${GROUND + 8}" width="${(segW - 2).toFixed(1)}" height="3" fill="${filled ? P.green : P.line}"/>`
+      floor += `<rect x="${(x0 + i * segW).toFixed(1)}" y="${TRACK_Y}" width="${(segW - 3).toFixed(1)}" height="${TRACK_H}" fill="${filled ? P.green : P.line}"/>`
     }
     floor +=
-      `<rect x="${x1 + 4}" y="${GROUND - 26}" width="2" height="26" fill="${P.muted}"/>` +
-      `<rect class="flag" x="${x1 + 6}" y="${GROUND - 26}" width="10" height="7" fill="${progress >= 1 ? P.green : P.magenta}"/>`
-    crabX = x0 + Math.min(1, progress) * (x1 - x0 - crabW - 6)
+      `<rect x="${x1 + 5}" y="${GROUND - 40}" width="3" height="40" fill="${P.muted}"/>` +
+      `<rect class="flag" x="${x1 + 8}" y="${GROUND - 40}" width="15" height="11" fill="${progress >= 1 ? P.green : P.magenta}"/>`
+    crabX = x0 + Math.min(1, progress) * (x1 - x0 - crabW - 8)
   }
 
   // marco de visor: esquinas, etiqueta del lugar y estado
+  const c = 16
   const hud =
-    `<path d="M1 12V1H12M${W - 12} 1H${W - 1}V12M${W - 1} ${H - 12}V${H - 1}H${W - 12}M12 ${H - 1}H1V${H - 12}" fill="none" stroke="${line}" stroke-width="1.5" opacity=".9"/>` +
-    `<text x="16" y="12" font-family="monospace" font-size="7.5" font-weight="bold" fill="${P.muted}" letter-spacing="1">NEO-CBA // SECTOR 7</text>` +
-    `<g class="rec"><circle cx="${W - 44}" cy="9" r="2.5" fill="${tagColor}"/></g>` +
-    `<text x="${W - 38}" y="12" font-family="monospace" font-size="7.5" font-weight="bold" fill="${tagColor}" letter-spacing="1">${tag}</text>`
+    `<path d="M1 ${c}V1H${c}M${W - c} 1H${W - 1}V${c}M${W - 1} ${H - c}V${H - 1}H${W - c}M${c} ${H - 1}H1V${H - c}" fill="none" stroke="${line}" stroke-width="2" opacity=".9"/>` +
+    `<text x="22" y="16" font-family="monospace" font-size="10" font-weight="bold" fill="${P.muted}" letter-spacing="1.2">NEO-CBA // SECTOR 7</text>` +
+    `<g class="rec"><circle cx="${W - 54}" cy="12.5" r="3.5" fill="${tagColor}"/></g>` +
+    `<text x="${W - 46}" y="16" font-family="monospace" font-size="10" font-weight="bold" fill="${tagColor}" letter-spacing="1.2">${tag}</text>`
 
   const city = skyline(m)
   return (
@@ -422,6 +432,18 @@ const BG_HORIZON = 640
 
 const BG_GLOW = [P.cyan, P.yellow, P.magenta, P.violet, P.sunMid] as const
 
+// Cuánto brilla cada cosa del fondo. Encima va texto, y lo que más estorba para leer son
+// los puntos chicos y saturados del tamaño de una letra: ventanas y carteles. Esos van
+// bajitos. Las formas grandes y suaves (el sol, las siluetas) aguantan más.
+const BG_DIM = {
+  windows: { far: 0.1, mid: 0.15, near: 0.22 },
+  signs: 0.4,
+  crab: 0.8,
+  sun: 0.62,
+  horizon: 0.38,
+  gridLines: 0.12,
+} as const
+
 /** Una hilera de edificios con ventanas, de ancho completo. */
 function bgRow(seed: number, base: string, minH: number, maxH: number, lit: number, alpha: number): string {
   const rnd = seeded(seed)
@@ -458,7 +480,7 @@ function bgTower(x: number, top: number, w: number, seed: number): string {
   for (let wy = top + 16; wy < BG_HORIZON - 10; wy += 16) {
     for (let wx = x + 9; wx < x + w - 10; wx += 13) {
       if (rnd() > 0.5) continue
-      out += `<rect x="${wx}" y="${wy}" width="6" height="7" fill="${BG_GLOW[Math.floor(rnd() * BG_GLOW.length)]!}" opacity=".7"/>`
+      out += `<rect x="${wx}" y="${wy}" width="6" height="7" fill="${BG_GLOW[Math.floor(rnd() * BG_GLOW.length)]!}" opacity="${BG_DIM.windows.near}"/>`
     }
   }
   return out
@@ -482,11 +504,11 @@ export function backdropSvg(): string {
   for (let i = 0; i <= 26; i++) {
     const xTop = BG_W / 2 + (i - 13) * 34
     const xBottom = BG_W / 2 + (i - 13) * 190
-    grid += `<line x1="${xTop}" y1="${BG_HORIZON}" x2="${xBottom}" y2="${BG_H}" stroke="${P.magenta}" stroke-width="1.5" opacity=".22"/>`
+    grid += `<line x1="${xTop}" y1="${BG_HORIZON}" x2="${xBottom}" y2="${BG_H}" stroke="${P.magenta}" stroke-width="1.5" opacity="${BG_DIM.gridLines}"/>`
   }
   for (let i = 0; i < 9; i++) {
     const y = BG_HORIZON + Math.round(Math.pow(i / 8, 2.1) * (BG_H - BG_HORIZON))
-    grid += `<line x1="0" y1="${y}" x2="${BG_W}" y2="${y}" stroke="${P.cyan}" stroke-width="1.5" opacity="${(0.1 + i * 0.025).toFixed(2)}"/>`
+    grid += `<line x1="0" y1="${y}" x2="${BG_W}" y2="${y}" stroke="${P.cyan}" stroke-width="1.5" opacity="${(BG_DIM.gridLines / 2 + i * 0.014).toFixed(2)}"/>`
   }
   // estrellas fijas
   const rnd = seeded(11)
@@ -498,14 +520,14 @@ export function backdropSvg(): string {
   }
   const css = `
     .bw{animation:bwink 5s steps(2) infinite}.bw2{animation-delay:1.7s}.bw3{animation-delay:3.1s}
-    @keyframes bwink{0%,80%{opacity:.8}81%,100%{opacity:.15}}
+    @keyframes bwink{0%,80%{opacity:.34}81%,100%{opacity:.08}}
     .bsign{animation:bneon 7s steps(1) infinite}.bs2{animation-delay:2.6s}
     @keyframes bneon{0%,90%{opacity:1}91%{opacity:.3}94%{opacity:1}96%{opacity:.5}98%,100%{opacity:1}}
   `
   // un cangrejito en la terraza de su torre: el dueño del barrio
   const roof = 404
   const tiny =
-    `<g transform="translate(402 ${roof - 30})">` +
+    `<g transform="translate(402 ${roof - 30})" opacity="${BG_DIM.crab}">` +
     pixels(CLAW_L, 0, 0, CRAB_PAL, 3) +
     pixels(CLAW_R, 10, 0, CRAB_PAL, 3) +
     pixels(BODY, 0, 3, CRAB_PAL, 3) +
@@ -526,29 +548,29 @@ export function backdropSvg(): string {
     `<rect width="${BG_W}" height="${BG_HORIZON}" fill="url(#bsky)"/>` +
     stars +
     `<g clip-path="url(#bhalf)"><circle cx="${cx}" cy="${cy}" r="${r * 2.2}" fill="url(#bhalo)"/>` +
-    `<g opacity=".8"><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#bsun)"/>${cuts}</g></g>` +
-    bgRow(21, P.farBuilding, 90, 230, 0.2, 0.3) +
-    bgRow(34, P.midBuilding, 60, 270, 0.34, 0.5) +
+    `<g opacity="${BG_DIM.sun}"><circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#bsun)"/>${cuts}</g></g>` +
+    bgRow(21, P.farBuilding, 90, 230, 0.2, BG_DIM.windows.far) +
+    bgRow(34, P.midBuilding, 60, 270, 0.34, BG_DIM.windows.mid) +
     // la torre del cangrejo, con el cartel vertical colgado de su costado
     bgTower(384, roof, 96, 77) +
     `<rect x="368" y="${roof + 22}" width="16" height="3" fill="${P.faint}"/><rect x="368" y="${roof + 110}" width="16" height="3" fill="${P.faint}"/>` +
-    `<g class="bsign">` +
+    `<g opacity="${BG_DIM.signs}"><g class="bsign">` +
     `<rect x="322" y="${roof + 8}" width="46" height="120" fill="${P.void}" stroke="${P.magenta}" stroke-width="3"/>` +
     `<text x="345" y="${roof + 58}" text-anchor="middle" font-family="monospace" font-size="34" font-weight="bold" fill="${P.magenta}">カ</text>` +
     `<text x="345" y="${roof + 108}" text-anchor="middle" font-family="monospace" font-size="34" font-weight="bold" fill="${P.magenta}">ニ</text>` +
-    `</g>` +
+    `</g></g>` +
     tiny +
     // la torre del cartel de techo, parado sobre dos patas
     bgTower(752, 486, 166, 91) +
     `<rect x="778" y="468" width="3" height="18" fill="${P.faint}"/><rect x="889" y="468" width="3" height="18" fill="${P.faint}"/>` +
-    `<g class="bsign bs2">` +
+    `<g opacity="${BG_DIM.signs}"><g class="bsign bs2">` +
     `<rect x="760" y="430" width="150" height="38" fill="${P.void}" stroke="${P.cyan}" stroke-width="3"/>` +
     `<text x="835" y="457" text-anchor="middle" font-family="monospace" font-size="26" font-weight="bold" fill="${P.cyan}">FERNET</text>` +
-    `</g>` +
-    bgRow(55, P.nearBuilding, 40, 200, 0.42, 0.7) +
+    `</g></g>` +
+    bgRow(55, P.nearBuilding, 40, 200, 0.36, BG_DIM.windows.near) +
     `<rect x="0" y="${BG_HORIZON}" width="${BG_W}" height="${BG_H - BG_HORIZON}" fill="${P.void}"/>` +
     `<rect x="0" y="${BG_HORIZON + 2}" width="${BG_W}" height="60" fill="url(#bwet)"/>` +
-    `<rect x="0" y="${BG_HORIZON}" width="${BG_W}" height="2" fill="${P.cyan}" opacity=".7"/>` +
+    `<rect x="0" y="${BG_HORIZON}" width="${BG_W}" height="2" fill="${P.cyan}" opacity="${BG_DIM.horizon}"/>` +
     grid +
     `</svg>`
   )
@@ -598,4 +620,48 @@ export function eqSvg(active: boolean, bars = 32): string {
     `<rect x="0" y="${baseY}" width="${W}" height="1" fill="${P.line}"/>` +
     `</svg>`
   )
+}
+
+/**
+ * Un medidor de neón: una fila de segmentos que se encienden de izquierda a derecha.
+ * Sirve para el contexto (cuánto se llenó la ventana) y para el avance del plan.
+ * `fraction` va de 0 a 1; sin dato, la pista queda apagada. `marks` son rayitas
+ * finas sobre la pista (por ejemplo dónde empieza el «ojo»), también de 0 a 1.
+ */
+export function gaugeSvg(fraction: number | undefined, color: string, marks: number[] = [], segments = 40): string {
+  const W = 400
+  const H = 14
+  const GAP = 2
+  const top = 3 // deja lugar arriba para las marcas
+  const sw = (W - GAP * (segments - 1)) / segments
+  const f = fraction === undefined ? 0 : Math.max(0, Math.min(1, fraction))
+  // con algo usado, al menos un segmento: una barra vacía dice «nada», y no es cierto
+  const lit = fraction !== undefined && f > 0 ? Math.max(1, Math.round(f * segments)) : 0
+  let out = ''
+  // el resplandor detrás de lo encendido
+  if (lit > 0) {
+    const gw = (lit * (sw + GAP) - GAP).toFixed(2)
+    out += `<rect x="0" y="${top - 2}" width="${gw}" height="${H - top + 3}" rx="3" fill="${color}" opacity=".16"/>`
+  }
+  for (let i = 0; i < segments; i++) {
+    const x = (i * (sw + GAP)).toFixed(2)
+    const w = sw.toFixed(2)
+    if (i < lit) {
+      // lo más viejo un poco más tenue, la punta a pleno
+      const op = (0.55 + 0.45 * ((i + 1) / lit)).toFixed(2)
+      out += `<rect x="${x}" y="${top}" width="${w}" height="${H - top - 1}" rx="1" fill="${color}" opacity="${op}"/>`
+    } else {
+      out += `<rect x="${x}" y="${top}" width="${w}" height="${H - top - 1}" rx="1" fill="${P.line}"/>`
+    }
+  }
+  if (lit > 0) {
+    // la punta brilla
+    const x = ((lit - 1) * (sw + GAP)).toFixed(2)
+    out += `<rect x="${x}" y="${top}" width="${sw.toFixed(2)}" height="${H - top - 1}" rx="1" fill="${P.text}" opacity=".55"/>`
+  }
+  for (const m of marks) {
+    const x = (Math.max(0, Math.min(1, m)) * W).toFixed(2)
+    out += `<rect x="${x}" y="0" width="2" height="${H}" fill="${P.muted}" opacity=".7"/>`
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${out}</svg>`
 }

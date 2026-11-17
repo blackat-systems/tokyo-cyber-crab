@@ -4,7 +4,8 @@ import { OUTFITS, QUIPS } from '../hooks/fun'
 import { STRINGS } from '../hooks/i18n'
 import { LOOK, LOOK_PROBLEMS } from '../hooks/look'
 import { checkColors } from '../hooks/make-colors.js'
-import { bandState, fmtWork, groupSteps, waitingWord } from '../hooks/register'
+import { gaugeSvg } from '../hooks/scene'
+import { bandState, contextBar, contextColor, fmtTokens, fmtWork, groupSteps, waitingWord } from '../hooks/register'
 
 // El mod sale en castellano, el idioma en que nació. Estos tests lo piden igual a propósito:
 // así no dependen de cuál sea el valor de fábrica. Los de inglés piden `en`.
@@ -28,6 +29,30 @@ const pane = (title: string) =>
 const PANE = pane('Pasos de Claude')
 const PANE_EN = pane("Claude's steps")
 
+// El menú del panel: en cada tarjeta, el título y el resumen son un solo botón (`tab-<sección>`)
+// y la flechita de al lado (`flecha-<sección>`) dice si está abierta. Estos ayudantes leen lo
+// que dice cada una y la tocan.
+type Card = { id: string; title: string; summary: string; isOpen: boolean }
+type Drawing = {
+  findAll: (q: { type: 'Button' }) => Promise<readonly { text: string; props: Record<string, unknown> }[]>
+  press: (t: { key: string }) => Promise<void>
+}
+const menu = async (ui: unknown): Promise<Card[]> => {
+  const buttons = await (ui as Drawing).findAll({ type: 'Button' })
+  const keyOf = (b: { props: Record<string, unknown> }) => String(b.props.key ?? '')
+  return buttons
+    .filter(b => keyOf(b).startsWith('tab-'))
+    .map(b => {
+      const id = keyOf(b).slice(4)
+      const [title = '', summary = ''] = b.text.split('\n')
+      const arrow = buttons.find(x => keyOf(x) === `flecha-${id}`)
+      return { id, title, summary, isOpen: arrow?.text === '▾' }
+    })
+}
+const card = async (ui: unknown, id: string) => (await menu(ui)).find(c => c.id === id)
+const shown = async (ui: unknown) => (await menu(ui)).map(c => `${c.isOpen ? '▾' : '▸'} ${c.title}`)
+const clickCard = (ui: unknown, id: string) => (ui as Drawing).press({ key: `tab-${id}` })
+
 test('lista los pasos con etiqueta en español y el cangrejo trabaja', ES, async ($, on) => {
   on('command.register', () => ({ value: { command: 'cangrejo' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -50,8 +75,8 @@ test('lista los pasos con etiqueta en español y el cangrejo trabaja', ES, async
 
 test('vacío muestra el cartel', ES, async $ => {
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /Todavía/ }))?.text).toBe(
-    'Todavía no hay pasos en este pedido.',
+  expect((await ui.find({ type: 'Text', text: /Acá aparece/ }))?.text).toBe(
+    'Acá aparece cada cosa que hace Claude: los archivos que lee, lo que cambia y los comandos que corre. Lo más nuevo, arriba.',
   )
   await ui.unmount()
 })
@@ -73,7 +98,7 @@ test('el plan del cangrejo se completa con update_plan', ES, async ($, on) => {
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /1\/2/ }))?.text).toContain('1/2')
+    expect((await card(ui, 'plan'))?.summary).toBe('1 de 2 tareas terminadas')
     expect((await ui.find({ type: 'Text', text: /^▶$/ }))?.text).toBe('▶')
     // las llamadas de plan no aparecen como pasos
     expect(await ui.find({ type: 'Text', text: /update_plan/ })).toBeUndefined()
@@ -99,11 +124,17 @@ test('los subagentes van a la mitad de abajo, no a la lista principal', ES, asyn
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
+    // de fábrica se ven los pasos, y ahí no está lo del subagente
+    expect((await ui.find({ type: 'Text', text: /Acá aparece/ }))?.text).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Explorar el repo/ })).toBeUndefined()
+    // la pestaña de ayudantes lo cuenta entero, con su última acción en su propio renglón
+    expect((await card(ui, 'agents'))?.title).toBe('Otros Claude ayudando')
+    expect((await card(ui, 'agents'))?.summary).toBe('1 trabajando ahora')
+    await clickCard(ui, 'agents')
     expect((await ui.find({ type: 'Text', text: /Explorar el repo/ }))?.text).toBe('Explorar el repo')
     expect((await ui.find({ type: 'Text', text: /1 herr\./ }))?.text).toContain('Explore')
-    // la última acción va en su propio renglón, entera
     expect((await ui.find({ type: 'Text', text: /Buscando · TODO/ }))?.text).toBe('Buscando · TODO')
-    expect((await ui.find({ type: 'Text', text: /Todavía no hay pasos/ }))?.text).toBeDefined()
+    await clickCard(ui, 'agents')
     await ui.unmount()
   }
 })
@@ -126,18 +157,23 @@ test('la descripción larga de un subagente se muestra entera, sin puntos suspen
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
+    await clickCard(ui, 'agents')
     expect((await ui.find({ type: 'Text', text: /Revisar de forma/ }))?.text).toBe(largo)
+    await clickCard(ui, 'agents')
     await ui.unmount()
   }
 })
 
-test('sin subagentes la caja lo dice en su título', ES, async $ => {
+test('sin subagentes la pestaña lo dice', ES, async $ => {
   const vacio = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await vacio.find({ type: 'Text', text: /ninguno ahora/ })).toBeDefined()
+  expect((await card(vacio, 'agents'))?.summary).toBe('Ninguno por ahora')
+  await clickCard(vacio, 'agents')
+  expect((await vacio.find({ type: 'Text', text: /reparte un trabajo/ }))?.text).toContain('otros Claude')
+  await clickCard(vacio, 'agents')
   await vacio.unmount()
 })
 
-test('con muchos subagentes dibuja cuatro y cuenta los que no entran', ES, async ($, on) => {
+test('con muchos subagentes, la pestaña dibuja cuatro y cuenta los que no entran', ES, async ($, on) => {
   let t = 1000
   let n = 0
   on('clock.now', () => ({ value: (t += 250) }))
@@ -153,7 +189,11 @@ test('con muchos subagentes dibuja cuatro y cuenta los que no entran', ES, async
     } as never)
   }
   const lleno = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await card(lleno, 'agents'))?.summary).toBe('6 trabajando ahora')
+  await clickCard(lleno, 'agents')
+  expect((await lleno.findAll({ type: 'Text', text: /^Tarea \d$/ })).length).toBe(4)
   expect((await lleno.find({ type: 'Text', text: /más$/ }))?.text).toBe('+ 2 más')
+  await clickCard(lleno, 'agents')
   await lleno.unmount()
 })
 
@@ -208,7 +248,7 @@ const BACKDROP = (plugin: string, scene: string) =>
 
 test('el look se pide con la forma que la app entiende y con colores que va a pintar', async () => {
   // la forma vieja ({ id, colorScheme }) la app la rechaza sin avisar
-  expect(LOOK.backdrop).toEqual({ scene: 'neo-cba', glass: { blur: 4, tint: '#14141f', opacity: 0.55 } })
+  expect(LOOK.backdrop).toEqual({ scene: 'neo-cba', glass: { blur: 6, tint: '#14141f', opacity: 0.62 } })
   expect(LOOK.overrideColorScheme).toBe('dark')
   expect(LOOK.colors?.label).toBe('Neo-Córdoba')
   expect(Object.keys(LOOK.colors?.inputs ?? {})).toEqual(['dark'])
@@ -319,13 +359,14 @@ test('la franja de visor aparece sobre el cuadro de texto y cede ante una encues
     return <Text>lo de abajo</Text>
   })
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /NEO-CBA/ })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /transmitiendo/ }))?.text).toBe('transmitiendo')
   expect(await ui.find({ type: 'Text', text: /lo de abajo/ })).toBeDefined()
+  // sin el cartel de ciudad: la franja dice el estado y nada de relleno
+  expect(await ui.find({ type: 'Text', text: /NEO-CBA|SECTOR/ })).toBeUndefined()
   await ui.unmount()
 
   const survey = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true }, surface: 'desktop' })
-  expect(await survey.find({ type: 'Text', text: /NEO-CBA/ })).toBeUndefined()
+  expect(await survey.find({ type: 'Text', text: /transmitiendo/ })).toBeUndefined()
   await survey.unmount()
 })
 
@@ -378,11 +419,15 @@ test('el marcador suma pedidos, pasos y fallas de la sesión', ES, async ($, on)
   await $.tool.call({ tool: 'Bash', command: 'false' } as never)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /MARCADOR/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeUndefined()
+  // la pestaña de sesión: las cifras grandes con su rótulo
+  await clickCard(ui, 'score')
   expect((await ui.find({ type: 'Text', text: /^PEDIDOS$/ }))?.text).toBe('PEDIDOS')
+  expect((await ui.find({ type: 'Text', text: /^FALLAS$/ }))?.text).toBe('FALLAS')
   const numbers = (await ui.findAll({ type: 'Text', text: /^\d+$/ })).map(x => x.text)
   expect(numbers).toContain('1')
   expect(numbers).toContain('2')
+  await clickCard(ui, 'score')
   await ui.unmount()
 })
 
@@ -486,11 +531,16 @@ test('set to English, the panel speaks English', EN, async ($, on) => {
     const ui = await $.ui.mount({ ...PANE_EN, surface })
     expect((await ui.find({ type: 'Text', text: /Reading/ }))?.text).toBe('Reading · app.ts')
     expect((await ui.find({ type: 'Text', text: /Running/ }))?.text).toBe('Running · npm test')
-    expect(await ui.find({ type: 'Text', text: /^SCOREBOARD$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /^SUBAGENTS$/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /none right now/ })).toBeDefined()
+    expect(await shown(ui)).toEqual(['▾ What Claude is doing', '▸ Other Claudes helping', '▸ Session summary'])
+    expect((await card(ui, 'steps'))?.summary).toBe('2 actions done')
     // nothing left behind in Spanish
-    expect(await ui.find({ type: 'Text', text: /MARCADOR|SUBAGENTES|Leyendo|hechos/ })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: /Leyendo|hechas|Acá aparece/ })).toBeUndefined()
+    await clickCard(ui, 'agents')
+    expect((await ui.find({ type: 'Text', text: /splits a big job/ }))?.text).toContain('other Claudes')
+    await clickCard(ui, 'score')
+    expect(await ui.find({ type: 'Text', text: /^PROMPTS$|^REQUESTS$/ })).toBeDefined()
+    await clickCard(ui, 'agents')
+    await clickCard(ui, 'score')
     await ui.unmount()
   }
 })
@@ -555,7 +605,7 @@ test('de fábrica, sin tocar ninguna opción, el mod habla castellano', async ($
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await ui.find({ type: 'Text', text: /Leyendo/ }))?.text).toBe('Leyendo · app.ts')
-  expect(await ui.find({ type: 'Text', text: /^MARCADOR$/ })).toBeDefined()
+  expect((await card(ui, 'score'))?.title).toBe('Resumen de la sesión')
   await ui.unmount()
 })
 
@@ -573,4 +623,264 @@ test('los dos idiomas dicen lo mismo: ni una clave ni una frase de menos', async
     expect(o.name.en.length).toBeGreaterThan(0)
     expect(o.name.es.length).toBeGreaterThan(0)
   }
+})
+
+// ---------- El medidor de contexto ----------
+
+const usageOf = (context: { tokens?: number; window: number; percent?: number }) => ({
+  value: { startedAt: 0, context, rateLimits: [] },
+})
+
+test('los tokens se leen cortos y el medidor cambia de color al llenarse', async () => {
+  expect(fmtTokens(461_900)).toBe('461.9k')
+  expect(fmtTokens(1_000_000)).toBe('1M')
+  expect(fmtTokens(200_000)).toBe('200k')
+  expect(fmtTokens(850)).toBe('850')
+  // tranquilo hasta 69, «ojo» desde 70, «se acaba» desde 90
+  expect(contextColor(46)).toBe(contextColor(69))
+  expect(contextColor(70)).not.toBe(contextColor(69))
+  expect(contextColor(90)).not.toBe(contextColor(89))
+  expect(contextBar(0)).toBe('▱'.repeat(12))
+  expect(contextBar(50)).toBe('▰'.repeat(6) + '▱'.repeat(6))
+  expect(contextBar(100)).toBe('▰'.repeat(12))
+  // con algo usado nunca queda vacía
+  expect(contextBar(1)).toBe('▰' + '▱'.repeat(11))
+})
+
+test('el panel y la franja muestran cuánto contexto va usado', ES, async ($, on) => {
+  on('session.usage', () => usageOf({ tokens: 461_900, window: 1_000_000, percent: 46 }) as never)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('ui.render', ($$, e) => {
+    const { Text } = $$.ui.resolve(e)
+    return <Text>lo de abajo</Text>
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  for (const surface of ['desktop', 'terminal'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect(await ui.find({ type: 'Text', text: /^CONTEXTO$/ })).toBeDefined()
+    expect((await ui.find({ type: 'Text', text: /46%/ }))?.text).toContain('46%')
+    expect((await ui.find({ type: 'Text', text: /quedan/ }))?.text).toBe('461.9k de 1M · quedan 538.1k')
+    await ui.unmount()
+  }
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await band.find({ type: 'Text', text: /contexto/ }))?.text).toContain('contexto 46%')
+  await band.unmount()
+})
+
+test('antes de la primera respuesta el medidor dice que no midió, en vez de inventar un cero', ES, async ($, on) => {
+  on('session.usage', () => usageOf({ window: 200_000 }) as never)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /sin medir/ }))?.text).toBe('ventana de 200k · todavía sin medir')
+  expect(await ui.find({ type: 'Text', text: /0%/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('si la app no informa el contexto, el medidor no se dibuja', ES, async $ => {
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^CONTEXTO$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('dentro de un turno, cada paso vuelve a leer el contexto', ES, async ($, on) => {
+  let percent = 10
+  on('session.usage', () => usageOf({ tokens: percent * 2_000, window: 200_000, percent }) as never)
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+  percent = 91
+  await $.tool.call({ tool: 'Read', file_path: 'b.ts' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /91%/ }))?.text).toContain('91%')
+  await ui.unmount()
+})
+
+test('in English the meter reads CONTEXT', EN, async ($, on) => {
+  on('session.usage', () => usageOf({ tokens: 50_000, window: 200_000, percent: 25 }) as never)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE_EN, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^CONTEXT$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /left$/ }))?.text).toBe('50k of 200k · 150k left')
+  await ui.unmount()
+})
+
+// ---------- Las pestañas ----------
+
+test('de fábrica se ven los pasos con lo que se está haciendo del plan, y el plan entero en su pestaña', ES, async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  await $.tool.call({
+    tool: 'TodoWrite',
+    todos: [
+      { content: 'Leer el código', status: 'completed' },
+      { content: 'Escribir el mod', status: 'in_progress' },
+      { content: 'Probarlo', status: 'pending' },
+      { content: 'Publicarlo', status: 'pending' },
+    ],
+  } as never)
+
+  for (const surface of ['desktop', 'terminal'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    expect((await ui.find({ type: 'Text', text: /Escribir el mod/ }))?.text).toBe('Escribir el mod')
+    expect(await ui.find({ type: 'Text', text: /Leer el código|Probarlo|Publicarlo/ })).toBeUndefined()
+    expect((await card(ui, 'plan'))?.summary).toBe('1 de 4 tareas terminadas')
+    expect((await card(ui, 'plan'))?.title).toBe('Lista de tareas')
+
+    await clickCard(ui, 'plan')
+    expect(await ui.find({ type: 'Text', text: /Leer el código/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /Publicarlo/ })).toBeDefined()
+    expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▾ Lista de tareas', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
+
+    await clickCard(ui, 'plan')
+    expect(await ui.find({ type: 'Text', text: /Publicarlo/ })).toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('los pasos van lo más nuevo arriba y el título cuenta cuántos van', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  for (let i = 1; i <= 9; i += 1) {
+    await $.tool.call({ tool: i % 2 ? 'Read' : 'Edit', file_path: `f${i}.ts` } as never)
+  }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await card(ui, 'steps'))?.title).toBe('Qué está haciendo Claude')
+  expect((await card(ui, 'steps'))?.summary).toBe('9 acciones hechas')
+  // lo más nuevo arriba
+  const labels = (await ui.findAll({ type: 'Text', text: /f\d\.ts/ })).map(x => x.text)
+  expect(labels[0]).toContain('f9.ts')
+  // entran los últimos (como mínimo seis); los viejos se cuentan, no desaparecen sin aviso
+  expect(labels.length).toBeGreaterThanOrEqual(6)
+  if (labels.length < 9) {
+    expect((await ui.find({ type: 'Text', text: /anterior/ }))?.text).toContain(String(9 - labels.length))
+  }
+  await ui.unmount()
+})
+
+test('sin plan no hay pestaña de plan; las demás siempre están', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
+  await ui.unmount()
+})
+
+test('las tarjetas abiertas quedan abiertas; si el plan se vacía, su tarjeta se va y las demás siguen', ES, async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Algo', status: 'in_progress' }] } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await clickCard(ui, 'plan')
+  expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▾ Lista de tareas', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
+  await ui.unmount()
+  const otra = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await shown(otra)).toEqual(['▾ Qué está haciendo Claude', '▾ Lista de tareas', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
+  await otra.unmount()
+  await $.tool.call({ tool: 'TodoWrite', todos: [] } as never)
+  const vacio = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await vacio.find({ type: 'Text', text: /Acá aparece/ })).toBeDefined()
+  await vacio.unmount()
+})
+
+test('la barra del contexto se dibuja de neón, con las marcas de aviso', ES, async ($, on) => {
+  on('session.usage', () => usageOf({ tokens: 140_000, window: 200_000, percent: 70 }) as never)
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const desk = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  const svgs = JSON.stringify(await desk.findAll({ type: 'Svg' }))
+  expect(svgs).toContain('CONTEXTO 70%')
+  expect(await desk.find({ type: 'Text', text: /▰/ })).toBeUndefined()
+  await desk.unmount()
+  // las marcas del «ojo» y del «se acaba» van sobre la pista
+  expect(gaugeSvg(0.7, '#fff', [0.7, 0.9]).match(/width="2"/g)?.length).toBe(2)
+  // con algo usado nunca queda apagada; sin dato, ningún segmento encendido
+  expect(gaugeSvg(0.001, '#fff')).toContain('opacity=".16"')
+  expect(gaugeSvg(undefined, '#fff')).not.toContain('opacity=".16"')
+})
+
+test('un paso largo se lee entero, sin cortar el texto', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  const largo = 'Ver si algo cambió en el proyecto durante la pausa y anotarlo'
+  await $.tool.call({ tool: 'Bash', command: 'git status', description: largo } as never)
+  for (const surface of ['desktop', 'terminal'] as const) {
+    const ui = await $.ui.mount({ ...PANE, surface })
+    const row = await ui.find({ type: 'Text', text: /Ver si algo/ })
+    expect(row?.text).toBe(`Ejecutando · ${largo}`)
+    // baja de renglón en una columna angosta; no termina en puntos suspensivos
+    expect(JSON.stringify(row)).toContain('"wrap":"wrap"')
+    await ui.unmount()
+  }
+})
+
+test('tocar la tarjeta abierta la cierra, y con ninguna abierta el menú sólo muestra los títulos', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
+  await clickCard(ui, 'steps')
+  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
+  expect((await menu(ui)).some(c => c.isOpen)).toBe(false)
+  // el resumen de cada una sigue a la vista
+  expect((await card(ui, 'steps'))?.summary).toBe('1 acción hecha')
+  // la flechita hace lo mismo que el título
+  await ui.press({ key: 'flecha-steps' })
+  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('el título y el resumen de una tarjeta son un solo botón, y la flechita hace lo mismo', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await card(ui, 'score')).toEqual({ id: 'score', title: 'Resumen de la sesión', summary: '0 pedidos · 0s de laburo', isOpen: false })
+  await clickCard(ui, 'score')
+  expect((await ui.find({ type: 'Text', text: /^PEDIDOS$/ }))?.text).toBe('PEDIDOS')
+  expect((await card(ui, 'score'))?.isOpen).toBe(true)
+  await ui.press({ key: 'flecha-score' })
+  expect((await card(ui, 'score'))?.isOpen).toBe(false)
+  await ui.unmount()
+})
+
+test('se pueden abrir varias tarjetas a la vez, y cada una se cierra por su cuenta', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await clickCard(ui, 'agents')
+  await clickCard(ui, 'score')
+  expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▾ Otros Claude ayudando', '▾ Resumen de la sesión'])
+  // las tres a la vista al mismo tiempo
+  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /reparte un trabajo/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeDefined()
+  // cerrar una no toca a las otras
+  await clickCard(ui, 'steps')
+  expect(await shown(ui)).toEqual(['▸ Qué está haciendo Claude', '▾ Otros Claude ayudando', '▾ Resumen de la sesión'])
+  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeDefined()
+  await ui.unmount()
 })

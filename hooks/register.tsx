@@ -3,7 +3,10 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type {
   AgentStatus,
+  ContextUse,
   Mood,
+  OpenTabs,
+  PaneTab,
   PlanItem,
   PlanStatus,
   Stats,
@@ -16,7 +19,7 @@ import { STRINGS, langOf } from './i18n'
 import type { Lang, Strings } from './i18n'
 import { BACKDROP, LOOK } from './look'
 import { P } from './palette'
-import { backdropSvg, crabSvg, eqSvg, miniCrabSvg } from './scene'
+import { backdropSvg, crabSvg, eqSvg, gaugeSvg, miniCrabSvg } from './scene'
 
 const PANE = 'tokyo-crab'
 export const OUTFIT_EVERY_MS = 5 * 60 * 1000
@@ -44,6 +47,15 @@ const NO_STATS: Stats = { prompts: 0, steps: 0, fails: 0, workMs: 0 }
 const stats = atom({ plugin: 'tokyo-crab', key: 'stats' } as const, NO_STATS, { shape: 'stats-1' })
 // El tunga-tunga al terminar una tarea. /cyber-sonido lo apaga y lo prende.
 const sound = atom({ plugin: 'tokyo-crab', key: 'sound' } as const, true, { shape: 'sound-1' })
+// Las tarjetas del menú que están desplegadas: cada una se abre y se cierra por su cuenta.
+// De fábrica, sólo la de los pasos. La forma cambió (antes era una sola): `tab-2`.
+const TABS: readonly PaneTab[] = ['steps', 'plan', 'agents', 'score']
+const paneTab = atom({ plugin: 'tokyo-crab', key: 'tab' } as const, ['steps'] as OpenTabs, { shape: 'tab-2' })
+/** Cuántos pasos entran en la pestaña como mínimo, aunque la ventana sea baja. */
+const STEPS_MIN = 6
+// Cuánto contexto lleva usado la sesión, para el medidor del panel y de la franja.
+const NO_CONTEXT: ContextUse = { window: 0 }
+const contextUse = atom({ plugin: 'tokyo-crab', key: 'context' } as const, NO_CONTEXT, { shape: 'context-1' })
 
 // El cangrejo opina de lo que pasó de verdad en cada tarea. Apagado de fábrica: cada
 // opinión es una consulta chica al modelo y eso se paga. /cangrejo-opina lo prende.
@@ -88,6 +100,50 @@ async function applyLook($: EngineInterface) {
     return await $.theme.set(LOOK)
   } catch {
     return $.theme.set({ backdrop: LOOK.backdrop, overrideColorScheme: 'dark' })
+  }
+}
+
+// ---------- El medidor de contexto ----------
+
+/** Una cantidad de tokens en corto: 461.9k, 1M, 200k. */
+export function fmtTokens(n: number): string {
+  const short = (v: number) => String(Math.round(v * 10) / 10)
+  if (n >= 1_000_000) return `${short(n / 1_000_000)}M`
+  if (n >= 1_000) return `${short(n / 1_000)}k`
+  return String(Math.max(0, Math.round(n)))
+}
+
+/** Desde cuándo el medidor avisa: amarillo es «ojo», rojo es «se acaba». */
+export const CONTEXT_WARN = 70
+export const CONTEXT_DANGER = 90
+
+/** El color del medidor según cuánto se llenó la ventana. */
+export function contextColor(percent: number | undefined): string {
+  if (percent === undefined) return P.muted
+  return percent >= CONTEXT_DANGER ? P.red : percent >= CONTEXT_WARN ? P.yellow : P.cyan
+}
+
+/** La barra del medidor: tantos cuadritos llenos como contexto usado. */
+export function contextBar(percent: number | undefined, cells = 12): string {
+  const full = Math.max(0, Math.min(cells, Math.round(((percent ?? 0) / 100) * cells)))
+  // con algo usado, al menos un cuadrito: una barra vacía dice «nada», y no es cierto
+  const shown = percent !== undefined && percent > 0 ? Math.max(1, full) : full
+  return '▰'.repeat(shown) + '▱'.repeat(cells - shown)
+}
+
+const contextOf = (c: { tokens?: number; window: number; percent?: number }): ContextUse => ({
+  window: c.window,
+  ...(c.tokens === undefined ? {} : { tokens: c.tokens }),
+  ...(c.percent === undefined ? {} : { percent: c.percent }),
+})
+
+/** Le pregunta a la app cuánto contexto va usado. No cuesta nada; si no sabe, queda como estaba. */
+async function refreshContext($: EngineInterface): Promise<void> {
+  try {
+    const usage = await $.session.usage()
+    await update($, contextUse, () => contextOf(usage.context))
+  } catch {
+    // una app que no informa el contexto: el medidor no se dibuja
   }
 }
 
@@ -160,7 +216,9 @@ export function labelFor(tool: string, input: Record<string, unknown>, lang: Lan
     str('query') ||
     str('url') ||
     str('skill')
-  return detail ? `${verb} · ${clip(detail)}` : verb
+  // Hasta 160 caracteres: el panel baja de renglón, así que no hace falta cortar a lo que entra en uno.
+  // El tope es sólo para que un comando kilométrico no se coma el panel.
+  return detail ? `${verb} · ${clip(detail, 160)}` : verb
 }
 
 const MOOD_COLOR: Record<Mood, string> = {
@@ -346,7 +404,14 @@ export const register: Register = (on, options) => {
       const i = await update($, outfit, o => pickOutfit(o))
       await update($, quip, () => S.cmd.outfitAuto(outfitName(i) ?? S.cmd.outfitFallback))
     })
+    void refreshContext($)
     void $.ui.open({ id: PANE, title: S.title, backgroundColor: P.s0 })
+    return next(e)
+  })
+
+  // La app avisa sola cuando el contexto se mueve, después de cada turno.
+  on('session.measure', async ($, e, next) => {
+    await update($, contextUse, () => contextOf(e.context))
     return next(e)
   })
 
@@ -447,6 +512,7 @@ export const register: Register = (on, options) => {
       )
       await update($, mood, () => (failed ? 'error' : 'done') as Mood)
       await update($, quip, q => pickQuip(lang, failed ? 'error' : 'done', q))
+      await refreshContext($)
       const worked = turnStartedAt > 0 ? (await $.clock.now()) - turnStartedAt : 0
       await update($, stats, s => ({ ...(s ?? NO_STATS), workMs: (s ?? NO_STATS).workMs + worked }))
       // Sólo si hubo trabajo de verdad: una charla no merece ni fila ni música.
@@ -528,6 +594,9 @@ export const register: Register = (on, options) => {
       steps: (s ?? NO_STATS).steps + 1,
       fails: (s ?? NO_STATS).fails + (status === 'error' ? 1 : 0),
     }))
+    // dentro de un turno largo el contexto crece paso a paso: se vuelve a leer tras cada uno.
+    // Se espera a que termine para que dos pasos seguidos no dejen el dato viejo encima del nuevo.
+    await refreshContext($)
     return ran
   }).catch(($, e, next) => next(e))
 
@@ -538,7 +607,8 @@ export const register: Register = (on, options) => {
     return word === undefined ? next(e) : next({ ...e, props: { ...e.props, word } })
   })
 
-  // Una franja fina de visor sobre el cuadro de texto.
+  // Una franja discreta sobre el cuadro de texto: cómo está el turno y qué está haciendo
+  // a la izquierda, el contexto a la derecha. Callada: sólo el punto y el aviso llevan color.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const below = await next(e)
     if (e.props.hasSurvey || (await read($, backdrop)) === false) return below
@@ -547,23 +617,30 @@ export const register: Register = (on, options) => {
     const now = (await read($, steps)).filter(s => s.status === 'running')
     const current = now[now.length - 1]
     const helpers = (await read($, agents)).filter(a => a.status === 'running').length
+    const used = (await read($, contextUse)).percent
     return (
       <Box flexDirection="column">
         {below}
-        <Box flexDirection="row" gap={1}>
-          <Text color={P.magenta} bold>
-            ◢
-          </Text>
-          <Text color={P.muted}>NEO-CBA // SECTOR 7</Text>
-          <Text color={st.dot}>●</Text>
-          <Text color={st.color}>{st.text}</Text>
-          {current !== undefined && (
-            <Text color={P.text} wrap="truncate-end">
-              ▸ {current.label}
+        <Box flexDirection="row" justifyContent="space-between" gap={2}>
+          <Box flexDirection="row" gap={1} flexShrink={1} minWidth={0}>
+            <Text color={st.dot}>●</Text>
+            <Text color={st.color} bold>
+              {st.text}
             </Text>
-          )}
-          {helpers > 0 && (
-            <Text color={P.cyan}>{S.pane.helpers(helpers)}</Text>
+            {current !== undefined && (
+              <Text color={P.muted} wrap="truncate-end">
+                {current.label}
+              </Text>
+            )}
+            {helpers > 0 && <Text color={P.cyan}>{S.pane.helpers(helpers)}</Text>}
+          </Box>
+          {used !== undefined && (
+            <Box flexShrink={0}>
+              {/* tranquilo en gris; sólo se enciende cuando hay que mirarlo */}
+              <Text color={used >= CONTEXT_WARN ? contextColor(used) : P.muted} tabular>
+                {S.band.context(used)}
+              </Text>
+            </Box>
           )}
         </Box>
       </Box>
@@ -607,9 +684,13 @@ export const register: Register = (on, options) => {
     )
   })
 
+  // El panel. Arriba, el visor: el cangrejo, cómo está, su frase y cuánto contexto queda.
+  // Abajo, pestañas: se ve una sola y entera, así el panel es compacto sin esconder nada
+  // detrás de botoncitos difíciles de apuntar. Lo que se ve se lee completo: en una columna
+  // angosta, el texto baja de renglón en vez de cortarse.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
-    const { Box, Text } = els
+    const { Box, Text, Button } = els
     const Svg = 'Svg' in els ? els.Svg : undefined
     const list = await read($, steps)
     const m = await read($, mood)
@@ -618,240 +699,335 @@ export const register: Register = (on, options) => {
     const pDone = p.filter(it => it.status === 'completed').length
     const ag = await read($, agents)
     const rows = e.viewport?.rows ?? 40
-    const agRunning = ag.filter(a => a.status === 'running').length
-    const agSorted = [...ag].sort(
-      (a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.startedAt - a.startedAt,
-    )
-    // La caja de subagentes ocupa lo que necesita: vacía, un par de renglones.
-    const agShown = agSorted.slice(0, MAX_AGENTS)
-    const agHidden = agSorted.length - agShown.length
-    const agRows = ag.length === 0 ? 4 : 3 + agShown.length * 4 + (agHidden > 0 ? 1 : 0)
-    const room = Math.max(3, rows - agRows - 18 - (p.length ? p.length + 3 : 0))
+    const cu = await read($, contextUse)
     const st = (await read($, stats)) ?? NO_STATS
     const done = list.filter(s => s.status === 'done').length
     const running = list.filter(s => s.status === 'running').length
     const moodText = S.mood[m]
-    const moodColor = MOOD_COLOR[m]
     const q = await read($, quip)
     const o = await read($, outfit)
     const wearing = outfitName(o)
+    const agRunning = ag.filter(a => a.status === 'running').length
 
-    return (
-      <Box flexDirection="column" backgroundColor={P.s0} height="100%">
-        {/* ── mitad de arriba: Claude, su plan y sus pasos ── */}
-        <Box flexDirection="column" padding={1} gap={1} flexGrow={1} flexShrink={1} minHeight={0} overflow="hidden">
-          <Box flexDirection="column" backgroundColor={P.void}>
-            {Svg ? (
-              <Svg
-                source={crabSvg(m, progress, o)}
-                alt={S.alt.crab(moodText)}
-                isInteractive
-              />
-            ) : (
-              <Text color={m === 'error' ? P.red : P.crab}>
-                {m === 'working' ? ' (\\/)(°,,,°)(\\/) ' : m === 'idle' ? ' (\\/)(-,,,-)(\\/) zZ' : ' \\(\\/)(^,,,^)(\\/)/ '}
+    // Las tarjetas abiertas: cualquier combinación. (La del plan sólo existe cuando hay plan.)
+    const stored = await read($, paneTab)
+    const openTabs: readonly PaneTab[] = Array.isArray(stored) ? stored.filter(t => TABS.includes(t)) : ['steps']
+    const tabsShown = TABS.filter(t => t !== 'plan' || p.length > 0)
+    // Lo que cada sección tiene adentro, dicho en corto al lado de su nombre: se sabe sin abrirla.
+    const sm = S.pane.summary
+    const summary: Record<PaneTab, { text: string; color: string }> = {
+      steps:
+        list.length === 0
+          ? { text: sm.stepsNone, color: P.muted }
+          : { text: sm.steps(done, running), color: running > 0 ? P.cyan : P.muted },
+      plan: { text: sm.plan(pDone, p.length), color: pDone === p.length ? P.green : P.cyan },
+      agents:
+        agRunning > 0
+          ? { text: sm.agentsLive(agRunning), color: P.cyan }
+          : ag.length > 0
+            ? { text: sm.agentsDone(ag.length), color: P.muted }
+            : { text: sm.agentsNone, color: P.muted },
+      score: { text: sm.score(st.prompts, fmtWork(st.workMs)), color: P.muted },
+    }
+
+    // Un medidor: el rótulo a la izquierda, la cifra a la derecha y la barra de neón abajo.
+    // Sin dibujos (la terminal), la barra va en cuadritos de texto.
+    const meter = (label: string, value: string, fraction: number | undefined, color: string, marks: number[] = []) => (
+      <Box flexDirection="column">
+        <Box flexDirection="row" justifyContent="space-between" gap={1}>
+          <Text color={P.muted} bold>
+            {label}
+          </Text>
+          <Text color={color} bold tabular>
+            {value}
+          </Text>
+        </Box>
+        {Svg ? (
+          <Svg source={gaugeSvg(fraction, color, marks)} alt={`${label} ${value}`} />
+        ) : (
+          <Text color={color} tabular>
+            {contextBar(fraction === undefined ? undefined : fraction * 100, 20)}
+          </Text>
+        )}
+      </Box>
+    )
+
+    // ── el visor ──
+    const visor = (
+      <Box flexDirection="column" backgroundColor={P.s1} borderStyle="round" borderColor={P.line}>
+        <Box backgroundColor={P.void}>
+          {Svg ? (
+            <Svg source={crabSvg(m, progress, o)} alt={S.alt.crab(moodText)} isInteractive />
+          ) : (
+            <Text color={m === 'error' ? P.red : P.crab}>
+              {m === 'working' ? ' (\\/)(°,,,°)(\\/) ' : m === 'idle' ? ' (\\/)(-,,,-)(\\/) zZ' : ' \\(\\/)(^,,,^)(\\/)/ '}
+            </Text>
+          )}
+        </Box>
+        <Box flexDirection="column" paddingX={1} paddingY={1} gap={1}>
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={1}>
+              <Text color={MOOD_COLOR[m]}>●</Text>
+              <Text color={MOOD_COLOR[m]} bold>
+                {moodText}
               </Text>
-            )}
-          </Box>
-
-          {q !== '' && (
-            <Box
-              flexDirection="column"
-              borderStyle="round"
-              borderColor={P.magenta}
-              backgroundColor={P.s1}
-              paddingX={1}
-              minWidth={0}
-            >
-              <Text color={P.text} italic>
+            </Box>
+            {q !== '' && (
+              <Text color={P.text} italic wrap="wrap">
                 «{q}»
               </Text>
-              {wearing && (
-                <Text color={P.muted} wrap="truncate-end">
-                  {S.pane.wearing(wearing)}
-                </Text>
-              )}
-            </Box>
-          )}
-
-          {/* barra de estado, tipo visor */}
-          <Box flexDirection="row" gap={1} flexWrap="wrap">
-            <Text color={P.magenta} bold>
-              ◢ CLAUDE
-            </Text>
-            <Text color={P.muted}>//</Text>
-            <Text color={moodColor} bold>
-              {moodText}
-            </Text>
-            <Text color={P.muted} tabular>
-              {S.pane.counter(String(done).padStart(2, '0'), running)}
-            </Text>
-          </Box>
-
-          {p.length > 0 && (
-            <Box flexDirection="column" backgroundColor={P.s1} padding={1}>
-              <Box flexDirection="row" gap={1}>
-                <Text color={P.magenta} bold>
-                  ▍
-                </Text>
-                <Text color={P.text} bold>
-                  {S.pane.plan}
-                </Text>
-                <Text color={pDone === p.length ? P.green : P.cyan} tabular>
-                  {'▰'.repeat(Math.round((progress ?? 0) * 10))}
-                  {'▱'.repeat(10 - Math.round((progress ?? 0) * 10))} {pDone}/{p.length}
-                </Text>
-              </Box>
-              {p.map(it => (
-                <Box flexDirection="row" gap={1}>
-                  <Text
-                    color={
-                      it.status === 'completed' ? P.green : it.status === 'in_progress' ? P.cyan : P.muted
-                    }
-                  >
-                    {it.status === 'completed' ? '✓' : it.status === 'in_progress' ? '▶' : '○'}
-                  </Text>
-                  <Text
-                    color={
-                      it.status === 'completed' ? P.muted : it.status === 'in_progress' ? P.text : P.dim
-                    }
-                    bold={it.status === 'in_progress'}
-                    wrap="wrap"
-                  >
-                    {it.content}
-                  </Text>
-                </Box>
-              ))}
-            </Box>
-          )}
-
-          <Box flexDirection="column">
-            {list.length === 0 && (
-              <Text color={P.muted} italic>
-                {S.pane.empty}
+            )}
+            {wearing && (
+              <Text color={P.muted} wrap="wrap">
+                {S.pane.wearing(wearing)}
               </Text>
             )}
-            {/* lo más nuevo arriba: si no entra, se corta lo viejo */}
-            {groupSteps(list)
-              .slice(-room)
-              .reverse()
-              .map(s => (
-                <Box flexDirection="row" gap={1}>
-                  <Text color={ICON[s.status].color}>{ICON[s.status].glyph}</Text>
-                  {/* el paso en curso se lee entero; los ya hechos, en un renglón */}
-                  <Text
-                    color={s.status === 'running' ? P.text : s.status === 'done' ? P.dim : ICON[s.status].color}
-                    bold={s.status === 'running'}
-                    wrap={s.status === 'running' ? 'wrap' : 'truncate-end'}
-                  >
-                    {s.label}
-                  </Text>
-                  <Text color={P.muted} tabular>
-                    {fmtMs(s.ms)}
-                  </Text>
-                </Box>
-              ))}
           </Box>
+          {/* cuánto contexto va usado: lo que hay que mirar antes de que la sesión se llene */}
+          {cu.window > 0 && (
+            <Box flexDirection="column">
+              {meter(
+                S.pane.context,
+                cu.percent === undefined ? '—' : `${cu.percent}%`,
+                cu.percent === undefined ? undefined : cu.percent / 100,
+                contextColor(cu.percent),
+                [CONTEXT_WARN / 100, CONTEXT_DANGER / 100],
+              )}
+              <Text color={P.muted} tabular>
+                {cu.tokens === undefined
+                  ? S.pane.contextUnread(fmtTokens(cu.window))
+                  : S.pane.contextUse(fmtTokens(cu.tokens), fmtTokens(cu.window), fmtTokens(cu.window - cu.tokens))}
+              </Text>
+            </Box>
+          )}
         </Box>
+      </Box>
+    )
 
-        {/* ── abajo: los subagentes; la caja mide lo que necesita ── */}
-        <Box
-          flexDirection="column"
-          flexShrink={0}
-          borderStyle="round"
-          borderColor={agRunning ? P.cyan : P.line}
-          backgroundColor={P.s1}
-          paddingX={1}
-          gap={1}
-        >
-          <Box flexDirection="row" gap={1}>
-            <Text color={P.magenta} bold>
-              ▍
-            </Text>
-            <Text color={P.text} bold>
-              {S.pane.subagents}
-            </Text>
-            <Text color={P.muted}>
-              {agRunning ? S.pane.agentsLive(agRunning) : ag.length ? S.pane.agentsDone : S.pane.agentsNone}
-            </Text>
+    // ── pestaña: los pasos, lo más nuevo arriba, con lo que se está haciendo del plan encima ──
+    const current = p.find(it => it.status === 'in_progress') ?? p.find(it => it.status === 'pending')
+    const stepsAll = groupSteps(list).reverse()
+    const stepsShown = stepsAll.slice(0, Math.max(STEPS_MIN, rows - 26))
+    const stepsBody = (
+      <Box flexDirection="column" gap={1}>
+        {current !== undefined && (
+          <Box flexDirection="row" gap={1} alignItems="flex-start">
+            <Box flexShrink={0}>
+              <Text color={P.cyan}>▶</Text>
+            </Box>
+            <Box flexGrow={1} flexShrink={1} minWidth={0}>
+              <Text color={P.text} bold wrap="wrap">
+                {current.content}
+              </Text>
+            </Box>
           </Box>
-          {agShown.map(a => (
-            <Box flexDirection="row" gap={1} alignItems="flex-start" width="100%">
+        )}
+        <Box flexDirection="column">
+          {list.length === 0 && (
+            <Text color={P.muted} size="footnote" wrap="wrap">
+              {S.pane.empty}
+            </Text>
+          )}
+          {stepsShown.map(s => (
+            // los renglones arriba: en un paso largo, la marca y el tiempo van con su primer renglón
+            <Box flexDirection="row" gap={1} alignItems="flex-start">
               <Box flexShrink={0}>
-                {Svg ? (
-                  <Svg
-                    source={miniCrabSvg(a.status, hashIndex(a.id, OUTFITS.length))}
-                    alt={S.alt.agent(S.agent[a.status])}
-                    width={42}
-                    height={36}
-                    isInteractive
-                  />
-                ) : (
-                  <Text color={AGENT_COLOR[a.status]}>(\/)</Text>
-                )}
+                <Text color={ICON[s.status].color}>{ICON[s.status].glyph}</Text>
               </Box>
-              {/* minWidth 0 deja que la columna se achique; el texto baja de renglón, no se corta */}
-              <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-                <Text color={a.status === 'running' ? P.text : P.dim} bold wrap="wrap">
-                  {a.description}
+              {/* minWidth 0 deja que el texto se achique y baje de renglón; el tiempo no se achica */}
+              <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text
+                  color={s.status === 'running' ? P.text : s.status === 'done' ? P.dim : ICON[s.status].color}
+                  bold={s.status === 'running'}
+                  wrap="wrap"
+                >
+                  {s.label}
                 </Text>
-                <Box flexDirection="row" gap={1} flexWrap="wrap">
-                  <Text color={AGENT_COLOR[a.status]}>{S.agent[a.status]}</Text>
-                  <Text color={P.muted}>
-                    · {a.type} · {S.pane.tools(a.tools)}
-                    {a.status === 'running' ? '' : ` · ${fmtMs(a.ms)}`}
-                  </Text>
-                </Box>
-                {a.status === 'running' && a.last !== undefined && (
-                  <Text color={P.muted} italic wrap="wrap">
-                    {a.last}
-                  </Text>
-                )}
+              </Box>
+              <Box flexShrink={0}>
+                <Text color={P.muted} size="footnote" tabular>
+                  {fmtMs(s.ms)}
+                </Text>
               </Box>
             </Box>
           ))}
-          {agHidden > 0 && (
-            <Text color={P.muted} italic>
-              {S.pane.more(agHidden)}
+          {stepsAll.length > stepsShown.length && (
+            <Text color={P.muted} size="footnote" italic>
+              {S.pane.earlier(stepsAll.length - stepsShown.length)}
             </Text>
           )}
         </Box>
+      </Box>
+    )
 
-        {/* ── el marcador de la sesión ── */}
+    // ── pestaña: el plan entero, con su barra ──
+    const planColor = pDone === p.length ? P.green : P.cyan
+    const planBody = (
+      <Box flexDirection="column" gap={1}>
+        {/* sólo la barra: el nombre y la cuenta ya están en el renglón de la sección */}
+        {Svg && <Svg source={gaugeSvg(progress, planColor)} alt={summary.plan.text} />}
+        <Box flexDirection="column">
+          {p.map(it => (
+            <Box flexDirection="row" gap={1} alignItems="flex-start">
+              <Box flexShrink={0}>
+                <Text color={it.status === 'completed' ? P.green : it.status === 'in_progress' ? P.cyan : P.muted}>
+                  {it.status === 'completed' ? '✓' : it.status === 'in_progress' ? '▶' : '○'}
+                </Text>
+              </Box>
+              <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                <Text
+                  color={it.status === 'completed' ? P.muted : it.status === 'in_progress' ? P.text : P.dim}
+                  bold={it.status === 'in_progress'}
+                  wrap="wrap"
+                >
+                  {it.content}
+                </Text>
+              </Box>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    )
+
+    // ── pestaña: los subagentes, primero los que trabajan ──
+    const agSorted = [...ag].sort(
+      (a, b) => Number(b.status === 'running') - Number(a.status === 'running') || b.startedAt - a.startedAt,
+    )
+    const agShown = agSorted.slice(0, MAX_AGENTS)
+    const agHidden = agSorted.length - agShown.length
+    const agentsBody = (
+      <Box flexDirection="column" gap={1}>
+        {ag.length === 0 && (
+          <Text color={P.muted} size="footnote" wrap="wrap">
+            {S.pane.agentsNone}
+          </Text>
+        )}
+        {agShown.map(a => (
+          <Box flexDirection="row" gap={1} alignItems="flex-start" width="100%">
+            <Box flexShrink={0}>
+              {Svg ? (
+                <Svg
+                  source={miniCrabSvg(a.status, hashIndex(a.id, OUTFITS.length))}
+                  alt={S.alt.agent(S.agent[a.status])}
+                  width={42}
+                  height={36}
+                  isInteractive
+                />
+              ) : (
+                <Text color={AGENT_COLOR[a.status]}>(\/)</Text>
+              )}
+            </Box>
+            {/* minWidth 0 deja que la columna se achique */}
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+              <Text color={a.status === 'running' ? P.text : P.dim} bold wrap="wrap">
+                {a.description}
+              </Text>
+              <Box flexDirection="row" gap={1} flexWrap="wrap">
+                <Text color={AGENT_COLOR[a.status]}>{S.agent[a.status]}</Text>
+                <Text color={P.muted}>
+                  · {a.type} · {S.pane.tools(a.tools)}
+                  {a.status === 'running' ? '' : ` · ${fmtMs(a.ms)}`}
+                </Text>
+              </Box>
+              {a.status === 'running' && a.last !== undefined && (
+                <Text color={P.muted} italic wrap="wrap">
+                  {a.last}
+                </Text>
+              )}
+            </Box>
+          </Box>
+        ))}
+        {agHidden > 0 && (
+          <Text color={P.muted} italic>
+            {S.pane.more(agHidden)}
+          </Text>
+        )}
+      </Box>
+    )
+
+    // ── pestaña: el marcador de la sesión ──
+    const score = [
+      { n: String(st.prompts), label: S.pane.cells.prompts, color: P.cyan },
+      { n: String(st.steps), label: S.pane.cells.steps, color: P.green },
+      { n: String(st.fails), label: S.pane.cells.fails, color: st.fails > 0 ? P.red : P.muted },
+      { n: fmtWork(st.workMs), label: S.pane.cells.work, color: P.crab },
+    ]
+    const scoreBody = (
+      <Box flexDirection="column" gap={1}>
+        {/* el ecualizador late mientras hay laburo y descansa cuando no */}
+        {Svg && <Svg source={eqSvg(m === 'working')} alt={S.alt.eq} height={26} isInteractive />}
+        <Box flexDirection="row" gap={2} flexWrap="wrap" justifyContent="space-between">
+          {score.map(cell => (
+            <Box flexDirection="column">
+              <Text color={cell.color} bold tabular>
+                {cell.n}
+              </Text>
+              <Text color={P.muted} size="caption">
+                {cell.label}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      </Box>
+    )
+
+    const bodies = { steps: stepsBody, plan: planBody, agents: agentsBody, score: scoreBody }
+
+    // El menú: una tarjeta por sección, separadas entre sí. Cada una dice qué es con un título
+    // en castellano llano y, abajo en letra chica, qué tiene adentro (entero, sin cortar).
+    // Se toca la tarjeta, no una flechita: el título y el resumen son un solo botón que ocupa el
+    // ancho (la app sólo deja tocar botones, no cajas). Tocarla la despliega; abierta, la cierra.
+    // Cada una se abre y se cierra por su cuenta. Abierta, lleva el borde violeta; las demás se marcan al pasar el mouse.
+    const section = (t: PaneTab) => {
+      const isOpen = openTabs.includes(t)
+      // abre o cierra sólo esta; las demás quedan como estaban
+      const toggle = () =>
+        void update($, paneTab, cur => {
+          const list = Array.isArray(cur) ? cur : ['steps' as PaneTab]
+          return list.includes(t) ? list.filter(x => x !== t) : [...list, t]
+        })
+      return (
         <Box
+          key={`sec-${t}`}
           flexDirection="column"
-          flexShrink={0}
-          borderStyle="round"
-          borderColor={P.line}
           backgroundColor={P.s1}
+          borderStyle="round"
+          borderColor={isOpen ? P.violet : P.line}
+          hover={{ borderColor: isOpen ? P.violet : P.muted }}
           paddingX={1}
         >
-          <Box flexDirection="row" gap={1}>
-            <Text color={P.magenta} bold>
-              ▍
-            </Text>
-            <Text color={P.text} bold>
-              {S.pane.score}
-            </Text>
-            <Text color={P.muted}>{S.pane.session}</Text>
-          </Box>
-          {/* el ecualizador late mientras hay laburo y descansa cuando no */}
-          {Svg && <Svg source={eqSvg(m === 'working')} alt={S.alt.eq} height={26} isInteractive />}
-          <Box flexDirection="row" gap={2} flexWrap="wrap">
-            {[
-              { n: String(st.prompts), label: S.pane.cells.prompts, color: P.cyan },
-              { n: String(st.steps), label: S.pane.cells.steps, color: P.green },
-              { n: String(st.fails), label: S.pane.cells.fails, color: st.fails > 0 ? P.red : P.muted },
-              { n: fmtWork(st.workMs), label: S.pane.cells.work, color: P.crab },
-            ].map(cell => (
-              <Box flexDirection="column">
-                <Text color={cell.color} bold tabular>
-                  {cell.n}
+          <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
+            <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+              <Button key={`tab-${t}`} label={`${S.pane.tabs[t]} · ${summary[t].text}`} plain onPress={toggle}>
+                <Text color={isOpen ? P.text : P.dim} bold>
+                  {S.pane.tabs[t]}
                 </Text>
-                <Text color={P.muted}>{cell.label}</Text>
-              </Box>
-            ))}
+                {'\n'}
+                <Text color={summary[t].color} size="footnote" wrap="wrap">
+                  {summary[t].text}
+                </Text>
+              </Button>
+            </Box>
+            <Box flexShrink={0}>
+              <Button key={`flecha-${t}`} plain dimColor={!isOpen} onPress={toggle}>
+                {isOpen ? '▾' : '▸'}
+              </Button>
+            </Box>
           </Box>
+          {isOpen && (
+            <Box flexDirection="column" paddingTop={1} paddingBottom={1}>
+              {bodies[t]}
+            </Box>
+          )}
+        </Box>
+      )
+    }
+
+    return (
+      <Box flexDirection="column" backgroundColor={P.s0} height="100%" padding={1} gap={1}>
+        {visor}
+        <Box flexDirection="column" gap={1}>
+          {tabsShown.map(section)}
         </Box>
       </Box>
     )

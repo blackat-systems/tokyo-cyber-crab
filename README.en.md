@@ -9,7 +9,9 @@ A mod for Claude Code that puts a pixel crab from Córdoba, Argentina, next to y
 ## What it does
 
 - **A live panel of Claude's steps.** Every tool call shows as one line with its file or command, how long it took, and whether it worked. Runs of the same step fold into one line.
+- **A menu of cards.** “What Claude is doing”, “Task list”, “Other Claudes helping” and “Session summary”: each card says in one line what it holds and unfolds when you tap it. Several can be open at once.
 - **The crab walks your plan.** When Claude keeps a task list, the crab crosses a progress track toward a flag as items get done.
+- **A context meter.** How much of the window the session has used, as a percentage and in tokens, with a neon bar in the panel and the percentage on the strip above the prompt box. It turns yellow at 70% and red at 90%.
 - **Subagents get their own crabs.** Each one shows what it is working on, how many tools it has used, and how it ended.
 - **A session scoreboard.** Prompts, steps, failures and time worked, under a neon equalizer that moves while Claude works.
 - **A visor strip above the prompt box,** a closing line under each finished request, and a waiting line that says things like "Asking La Mona for a song" instead of "Thinking".

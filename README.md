@@ -9,7 +9,9 @@ Un mod para Claude Code que pone un cangrejo pixelado cordobés al lado del chat
 ## Qué hace
 
 - **Un panel en vivo con los pasos de Claude.** Cada herramienta que usa aparece en un renglón con su archivo o comando, cuánto tardó y si salió bien. Varios pasos seguidos del mismo tipo se juntan en uno.
+- **Un menú de tarjetas.** «Qué está haciendo Claude», «Lista de tareas», «Otros Claude ayudando» y «Resumen de la sesión»: cada tarjeta dice en una línea qué tiene adentro y se despliega al tocarla. Se pueden abrir varias a la vez.
 - **El cangrejo recorre tu plan.** Cuando Claude lleva una lista de tareas, el cangrejo avanza por una pista hasta una banderita a medida que las va cerrando.
+- **Un medidor de contexto.** Cuánto de la ventana lleva usada la sesión, en porcentaje y en tokens, con una barra de neón en el panel y el porcentaje en la franja sobre el cuadro de texto. Se pone amarillo al 70 % y rojo al 90 %.
 - **Los subagentes tienen sus propios cangrejos.** Cada uno muestra en qué anda, cuántas herramientas usó y cómo terminó.
 - **Un marcador de la sesión.** Pedidos, pasos, fallas y tiempo de laburo, bajo un ecualizador de neón que se mueve mientras Claude trabaja.
 - **Una franja de visor sobre el cuadro de texto,** un renglón que cierra cada pedido terminado y una línea de espera que dice cosas como «Pidiéndole un tema a la Mona» en vez de «Thinking».

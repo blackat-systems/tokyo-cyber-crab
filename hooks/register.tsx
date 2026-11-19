@@ -5,7 +5,6 @@ import type {
   AgentStatus,
   ContextUse,
   Mood,
-  OpenTabs,
   PaneTab,
   PlanItem,
   PlanStatus,
@@ -47,12 +46,13 @@ const NO_STATS: Stats = { prompts: 0, steps: 0, fails: 0, workMs: 0 }
 const stats = atom({ plugin: 'tokyo-crab', key: 'stats' } as const, NO_STATS, { shape: 'stats-1' })
 // El tunga-tunga al terminar una tarea. /cyber-sonido lo apaga y lo prende.
 const sound = atom({ plugin: 'tokyo-crab', key: 'sound' } as const, true, { shape: 'sound-1' })
-// Las tarjetas del menú que están desplegadas: cada una se abre y se cierra por su cuenta.
-// De fábrica, sólo la de los pasos. La forma cambió (antes era una sola): `tab-2`.
-const TABS: readonly PaneTab[] = ['steps', 'plan', 'agents', 'score']
-const paneTab = atom({ plugin: 'tokyo-crab', key: 'tab' } as const, ['steps'] as OpenTabs, { shape: 'tab-2' })
-/** Cuántos pasos entran en la pestaña como mínimo, aunque la ventana sea baja. */
-const STEPS_MIN = 6
+// Las secciones del panel, en el orden en que se ven. Están todas desplegadas, siempre: el panel
+// crece hacia abajo y se recorre con la ruedita. No hay nada que abrir ni cerrar (antes eran
+// tarjetas plegables, y un toque que la app no llegaba a atender dejaba el panel sin responder).
+// Las tareas van primero: es lo que se mira para saber cómo viene el pedido, y su alto casi no cambia.
+const SECTIONS: readonly PaneTab[] = ['plan', 'steps', 'agents', 'score']
+/** Cuántos pasos se listan; los anteriores se cuentan en un renglón. */
+const STEPS_SHOWN = 10
 // Cuánto contexto lleva usado la sesión, para el medidor del panel y de la franja.
 const NO_CONTEXT: ContextUse = { window: 0 }
 const contextUse = atom({ plugin: 'tokyo-crab', key: 'context' } as const, NO_CONTEXT, { shape: 'context-1' })
@@ -190,6 +190,44 @@ export function applyPlan(prev: PlanItem[], input: Record<string, unknown>): Pla
 
 const progressOf = (p: PlanItem[]) =>
   p.length === 0 ? undefined : p.filter(it => it.status === 'completed').length / p.length
+
+const allDone = (p: PlanItem[]) => p.map(it => ({ ...it, status: 'completed' as PlanStatus }))
+
+/** Cuántas filas de la conversación se releen para rearmar el plan al arrancar. */
+const PLAN_LOOKBACK = 400
+
+/** El plan tal como quedó escrito en la conversación: sus llamadas de plan, aplicadas en orden. */
+export function planFromHistory(
+  rows: readonly { toolUses?: readonly { tool: string; input?: Record<string, unknown> }[] }[],
+): PlanItem[] {
+  let p: PlanItem[] = []
+  for (const row of rows) {
+    for (const use of row.toolUses ?? []) {
+      if (isPlanTool(use.tool)) p = applyPlan(p, use.input ?? {})
+      else if (isWrapTool(use.tool)) p = allDone(p)
+    }
+  }
+  return p
+}
+
+/**
+ * Rearma el plan con lo que quedó en la conversación. El plan vive en la memoria de la sesión, y
+ * esa memoria se pierde cuando la app se cierra o se actualiza: al reabrir, Claude sigue avisando
+ * «terminé este, voy al siguiente» sin repetir la lista, y sin lista no hay nada que mover: las
+ * tareas quedaban sin actualizarse hasta el pedido siguiente. Sólo con el plan vacío: nunca pisa
+ * uno que ya está.
+ */
+async function restorePlan($: EngineInterface): Promise<void> {
+  try {
+    if ((await read($, plan)).length > 0) return
+    const rows = await $.session.messages({ last: PLAN_LOOKBACK })
+    if (!Array.isArray(rows)) return
+    const found = planFromHistory(rows)
+    if (found.length > 0) await update($, plan, p => (p.length > 0 ? p : found))
+  } catch {
+    // una app que no deja leer la conversación: el plan aparece con el próximo aviso de Claude
+  }
+}
 
 // ---------- Etiquetas de cada paso ----------
 
@@ -405,6 +443,7 @@ export const register: Register = (on, options) => {
       await update($, quip, () => S.cmd.outfitAuto(outfitName(i) ?? S.cmd.outfitFallback))
     })
     void refreshContext($)
+    await restorePlan($)
     void $.ui.open({ id: PANE, title: S.title, backgroundColor: P.s0 })
     return next(e)
   })
@@ -548,17 +587,9 @@ export const register: Register = (on, options) => {
 
   on('tool.call', async ($, e, next) => {
     const input = e as unknown as Record<string, unknown>
-    // Las herramientas de plan alimentan el plan del cangrejo, no la lista de pasos.
-    if (isPlanTool(e.tool)) {
-      await update($, plan, p => applyPlan(p, input))
-      return next(e)
-    }
-    if (isWrapTool(e.tool)) {
-      await update($, plan, p => p.map(it => ({ ...it, status: 'completed' as PlanStatus })))
-      return next(e)
-    }
     const agentId = (e as { agentId?: string }).agentId
-    // Lo que hace un subagente va a su fila, abajo, no a la lista principal.
+    // Lo que hace un subagente va a su fila, abajo, no a la lista principal. Tampoco su lista de
+    // tareas, si lleva una: es la suya, y pisaría la del pedido.
     if (agentId !== undefined) {
       const label = labelFor(e.tool, input, lang)
       await update($, agents, l =>
@@ -568,6 +599,15 @@ export const register: Register = (on, options) => {
             : a,
         ),
       )
+      return next(e)
+    }
+    // Las herramientas de plan alimentan el plan del cangrejo, no la lista de pasos.
+    if (isPlanTool(e.tool)) {
+      await update($, plan, p => applyPlan(p, input))
+      return next(e)
+    }
+    if (isWrapTool(e.tool)) {
+      await update($, plan, allDone)
       return next(e)
     }
     const startedAt = await $.clock.now()
@@ -582,7 +622,22 @@ export const register: Register = (on, options) => {
     await update($, steps, list => [...list.filter(s => s.id !== step.id), step].slice(-80))
     await update($, mood, m => (m === 'error' ? m : ('working' as Mood)))
 
-    const ran = await next(e)
+    let ran: Awaited<ReturnType<typeof next>>
+    try {
+      ran = await next(e)
+    } catch (err) {
+      // La herramienta no llegó a contestar (la frenaron con Esc, se cayó a mitad de camino). Su
+      // paso se cierra como cortado en vez de quedar girando para siempre, y el error sigue viaje.
+      try {
+        const cutMs = (await $.clock.now()) - startedAt
+        await update($, steps, list =>
+          list.map(s => (s.id === step.id && s.status === 'running' ? { ...s, status: 'denied' as StepStatus, ms: cutMs } : s)),
+        )
+      } catch {
+        // si ni eso se puede anotar, el cierre del turno lo acomoda
+      }
+      throw err
+    }
     const ms = (await $.clock.now()) - startedAt
     const status: StepStatus =
       ran.deny !== undefined ? 'denied' : ran.isError === true ? 'error' : 'done'
@@ -685,12 +740,12 @@ export const register: Register = (on, options) => {
   })
 
   // El panel. Arriba, el visor: el cangrejo, cómo está, su frase y cuánto contexto queda.
-  // Abajo, pestañas: se ve una sola y entera, así el panel es compacto sin esconder nada
-  // detrás de botoncitos difíciles de apuntar. Lo que se ve se lee completo: en una columna
-  // angosta, el texto baja de renglón en vez de cortarse.
+  // Abajo, las secciones, todas desplegadas: el panel crece hacia abajo y se recorre con la
+  // ruedita. Lo que se ve se lee completo: en una columna angosta, el texto baja de renglón
+  // en vez de cortarse.
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = $.ui.resolve(e)
-    const { Box, Text, Button } = els
+    const { Box, Text } = els
     const Svg = 'Svg' in els ? els.Svg : undefined
     const list = await read($, steps)
     const m = await read($, mood)
@@ -698,7 +753,6 @@ export const register: Register = (on, options) => {
     const progress = progressOf(p)
     const pDone = p.filter(it => it.status === 'completed').length
     const ag = await read($, agents)
-    const rows = e.viewport?.rows ?? 40
     const cu = await read($, contextUse)
     const st = (await read($, stats)) ?? NO_STATS
     const done = list.filter(s => s.status === 'done').length
@@ -709,11 +763,9 @@ export const register: Register = (on, options) => {
     const wearing = outfitName(o)
     const agRunning = ag.filter(a => a.status === 'running').length
 
-    // Las tarjetas abiertas: cualquier combinación. (La del plan sólo existe cuando hay plan.)
-    const stored = await read($, paneTab)
-    const openTabs: readonly PaneTab[] = Array.isArray(stored) ? stored.filter(t => TABS.includes(t)) : ['steps']
-    const tabsShown = TABS.filter(t => t !== 'plan' || p.length > 0)
-    // Lo que cada sección tiene adentro, dicho en corto al lado de su nombre: se sabe sin abrirla.
+    // Las secciones a la vista. (La de las tareas sólo existe cuando hay plan.)
+    const sectionsShown = SECTIONS.filter(t => t !== 'plan' || p.length > 0)
+    // Lo que cada sección tiene adentro, dicho en corto bajo su nombre: se sabe de un vistazo.
     const sm = S.pane.summary
     const summary: Record<PaneTab, { text: string; color: string }> = {
       steps:
@@ -754,7 +806,7 @@ export const register: Register = (on, options) => {
 
     // ── el visor ──
     const visor = (
-      <Box flexDirection="column" backgroundColor={P.s1} borderStyle="round" borderColor={P.line}>
+      <Box flexDirection="column" flexShrink={0} backgroundColor={P.s1} borderStyle="round" borderColor={P.line}>
         <Box backgroundColor={P.void}>
           {Svg ? (
             <Svg source={crabSvg(m, progress, o)} alt={S.alt.crab(moodText)} isInteractive />
@@ -804,24 +856,12 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // ── pestaña: los pasos, lo más nuevo arriba, con lo que se está haciendo del plan encima ──
-    const current = p.find(it => it.status === 'in_progress') ?? p.find(it => it.status === 'pending')
+    // ── sección: los pasos, lo más nuevo arriba. (La tarea en curso ya se ve en su lista, justo
+    // encima: acá no se repite.) ──
     const stepsAll = groupSteps(list).reverse()
-    const stepsShown = stepsAll.slice(0, Math.max(STEPS_MIN, rows - 26))
+    const stepsShown = stepsAll.slice(0, STEPS_SHOWN)
     const stepsBody = (
       <Box flexDirection="column" gap={1}>
-        {current !== undefined && (
-          <Box flexDirection="row" gap={1} alignItems="flex-start">
-            <Box flexShrink={0}>
-              <Text color={P.cyan}>▶</Text>
-            </Box>
-            <Box flexGrow={1} flexShrink={1} minWidth={0}>
-              <Text color={P.text} bold wrap="wrap">
-                {current.content}
-              </Text>
-            </Box>
-          </Box>
-        )}
         <Box flexDirection="column">
           {list.length === 0 && (
             <Text color={P.muted} size="footnote" wrap="wrap">
@@ -973,61 +1013,40 @@ export const register: Register = (on, options) => {
 
     const bodies = { steps: stepsBody, plan: planBody, agents: agentsBody, score: scoreBody }
 
-    // El menú: una tarjeta por sección, separadas entre sí. Cada una dice qué es con un título
-    // en castellano llano y, abajo en letra chica, qué tiene adentro (entero, sin cortar).
-    // Se toca la tarjeta, no una flechita: el título y el resumen son un solo botón que ocupa el
-    // ancho (la app sólo deja tocar botones, no cajas). Tocarla la despliega; abierta, la cierra.
-    // Cada una se abre y se cierra por su cuenta. Abierta, lleva el borde violeta; las demás se marcan al pasar el mouse.
-    const section = (t: PaneTab) => {
-      const isOpen = openTabs.includes(t)
-      // abre o cierra sólo esta; las demás quedan como estaban
-      const toggle = () =>
-        void update($, paneTab, cur => {
-          const list = Array.isArray(cur) ? cur : ['steps' as PaneTab]
-          return list.includes(t) ? list.filter(x => x !== t) : [...list, t]
-        })
-      return (
-        <Box
-          key={`sec-${t}`}
-          flexDirection="column"
-          backgroundColor={P.s1}
-          borderStyle="round"
-          borderColor={isOpen ? P.violet : P.line}
-          hover={{ borderColor: isOpen ? P.violet : P.muted }}
-          paddingX={1}
-        >
-          <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1}>
-            <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-              <Button key={`tab-${t}`} label={`${S.pane.tabs[t]} · ${summary[t].text}`} plain onPress={toggle}>
-                <Text color={isOpen ? P.text : P.dim} bold>
-                  {S.pane.tabs[t]}
-                </Text>
-                {'\n'}
-                <Text color={summary[t].color} size="footnote" wrap="wrap">
-                  {summary[t].text}
-                </Text>
-              </Button>
-            </Box>
-            <Box flexShrink={0}>
-              <Button key={`flecha-${t}`} plain dimColor={!isOpen} onPress={toggle}>
-                {isOpen ? '▾' : '▸'}
-              </Button>
-            </Box>
-          </Box>
-          {isOpen && (
-            <Box flexDirection="column" paddingTop={1} paddingBottom={1}>
-              {bodies[t]}
-            </Box>
-          )}
+    // Una tarjeta por sección, separadas entre sí. Cada una dice qué es con un título en castellano
+    // llano y, abajo en letra chica, qué tiene adentro (entero, sin cortar); después, su contenido.
+    // Están todas desplegadas: no llevan botón ni flechita, así que no hay toque que se pueda perder.
+    // No se achican (`flexShrink` 0): lo que no entra en la ventana queda más abajo, a un giro de ruedita.
+    const section = (t: PaneTab) => (
+      <Box
+        flexDirection="column"
+        flexShrink={0}
+        backgroundColor={P.s1}
+        borderStyle="round"
+        borderColor={P.line}
+        paddingX={1}
+      >
+        <Box flexDirection="column">
+          <Text color={P.text} bold>
+            {S.pane.tabs[t]}
+          </Text>
+          <Text color={summary[t].color} size="footnote" wrap="wrap">
+            {summary[t].text}
+          </Text>
         </Box>
-      )
-    }
+        <Box flexDirection="column" paddingTop={1} paddingBottom={1}>
+          {bodies[t]}
+        </Box>
+      </Box>
+    )
 
+    // Alto mínimo, no alto fijo: con un alto fijo, lo que no entra se aplasta o se corta y no
+    // queda nada que recorrer. Así el panel mide lo que mide su contenido y la ventana lo recorre.
     return (
-      <Box flexDirection="column" backgroundColor={P.s0} height="100%" padding={1} gap={1}>
+      <Box flexDirection="column" backgroundColor={P.s0} minHeight="100%" padding={1} gap={1}>
         {visor}
-        <Box flexDirection="column" gap={1}>
-          {tabsShown.map(section)}
+        <Box flexDirection="column" flexShrink={0} gap={1}>
+          {sectionsShown.map(section)}
         </Box>
       </Box>
     )

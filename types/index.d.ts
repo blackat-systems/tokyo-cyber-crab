@@ -29,10 +29,8 @@ export type SubAgent = {
  */
 export type ContextUse = { tokens?: number; window: number; percent?: number }
 
-/** La pestaña del panel que está a la vista: se ve una sola, entera. */
+/** Las secciones del panel. Se ven todas a la vez, desplegadas. */
 export type PaneTab = 'steps' | 'plan' | 'agents' | 'score'
-/** Las tarjetas del menú que están abiertas: cualquier combinación, o ninguna. */
-export type OpenTabs = PaneTab[]
 
 /** Lo acumulado en la sesión, para el marcador del panel. */
 export type Stats = { prompts: number; steps: number; fails: number; workMs: number }
@@ -51,7 +49,6 @@ declare module 'claude-code' {
       sound: Shaped<boolean>
       chatty: Shaped<boolean>
       context: Shaped<ContextUse>
-      tab: Shaped<OpenTabs>
     }
   }
 }

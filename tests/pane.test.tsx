@@ -29,29 +29,25 @@ const pane = (title: string) =>
 const PANE = pane('Pasos de Claude')
 const PANE_EN = pane("Claude's steps")
 
-// El menú del panel: en cada tarjeta, el título y el resumen son un solo botón (`tab-<sección>`)
-// y la flechita de al lado (`flecha-<sección>`) dice si está abierta. Estos ayudantes leen lo
-// que dice cada una y la tocan.
-type Card = { id: string; title: string; summary: string; isOpen: boolean }
+// El panel muestra todas sus secciones desplegadas, siempre: no hay nada que tocar para abrirlas
+// y se recorre con la ruedita. Cada sección lleva su título y, en el renglón de abajo, un resumen
+// de lo que tiene. Estos ayudantes leen eso, en el orden en que aparece.
+type Card = { id: string; title: string; summary: string }
 type Drawing = {
-  findAll: (q: { type: 'Button' }) => Promise<readonly { text: string; props: Record<string, unknown> }[]>
-  press: (t: { key: string }) => Promise<void>
+  findAll: (q: { type: 'Text' | 'Button' }) => Promise<readonly { text: string; props: Record<string, unknown> }[]>
 }
-const menu = async (ui: unknown): Promise<Card[]> => {
-  const buttons = await (ui as Drawing).findAll({ type: 'Button' })
-  const keyOf = (b: { props: Record<string, unknown> }) => String(b.props.key ?? '')
-  return buttons
-    .filter(b => keyOf(b).startsWith('tab-'))
-    .map(b => {
-      const id = keyOf(b).slice(4)
-      const [title = '', summary = ''] = b.text.split('\n')
-      const arrow = buttons.find(x => keyOf(x) === `flecha-${id}`)
-      return { id, title, summary, isOpen: arrow?.text === '▾' }
-    })
+const SECTIONS = ['plan', 'steps', 'agents', 'score'] as const
+const menu = async (ui: unknown, lang: 'es' | 'en' = 'es'): Promise<Card[]> => {
+  const texts = (await (ui as Drawing).findAll({ type: 'Text' })).map(t => t.text)
+  const titles = STRINGS[lang].pane.tabs
+  return SECTIONS.map(id => ({ id, at: texts.indexOf(titles[id]) }))
+    .filter(s => s.at >= 0)
+    .sort((a, b) => a.at - b.at)
+    .map(s => ({ id: s.id, title: texts[s.at]!, summary: texts[s.at + 1] ?? '' }))
 }
-const card = async (ui: unknown, id: string) => (await menu(ui)).find(c => c.id === id)
-const shown = async (ui: unknown) => (await menu(ui)).map(c => `${c.isOpen ? '▾' : '▸'} ${c.title}`)
-const clickCard = (ui: unknown, id: string) => (ui as Drawing).press({ key: `tab-${id}` })
+const card = async (ui: unknown, id: string, lang: 'es' | 'en' = 'es') => (await menu(ui, lang)).find(c => c.id === id)
+const shown = async (ui: unknown, lang: 'es' | 'en' = 'es') => (await menu(ui, lang)).map(c => c.title)
+const buttons = async (ui: unknown) => (ui as Drawing).findAll({ type: 'Button' })
 
 test('lista los pasos con etiqueta en español y el cangrejo trabaja', ES, async ($, on) => {
   on('command.register', () => ({ value: { command: 'cangrejo' } }))
@@ -124,17 +120,15 @@ test('los subagentes van a la mitad de abajo, no a la lista principal', ES, asyn
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    // de fábrica se ven los pasos, y ahí no está lo del subagente
+    // la lista de pasos sigue vacía: lo que hace el subagente no se anota ahí
     expect((await ui.find({ type: 'Text', text: /Acá aparece/ }))?.text).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /Explorar el repo/ })).toBeUndefined()
-    // la pestaña de ayudantes lo cuenta entero, con su última acción en su propio renglón
+    expect((await card(ui, 'steps'))?.summary).toBe('Todavía nada en este pedido')
+    // la sección de subagentes lo cuenta entero, con su última acción en su propio renglón
     expect((await card(ui, 'agents'))?.title).toBe('Otros Claude ayudando')
     expect((await card(ui, 'agents'))?.summary).toBe('1 trabajando ahora')
-    await clickCard(ui, 'agents')
     expect((await ui.find({ type: 'Text', text: /Explorar el repo/ }))?.text).toBe('Explorar el repo')
     expect((await ui.find({ type: 'Text', text: /1 herr\./ }))?.text).toContain('Explore')
     expect((await ui.find({ type: 'Text', text: /Buscando · TODO/ }))?.text).toBe('Buscando · TODO')
-    await clickCard(ui, 'agents')
     await ui.unmount()
   }
 })
@@ -157,9 +151,7 @@ test('la descripción larga de un subagente se muestra entera, sin puntos suspen
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    await clickCard(ui, 'agents')
     expect((await ui.find({ type: 'Text', text: /Revisar de forma/ }))?.text).toBe(largo)
-    await clickCard(ui, 'agents')
     await ui.unmount()
   }
 })
@@ -167,9 +159,7 @@ test('la descripción larga de un subagente se muestra entera, sin puntos suspen
 test('sin subagentes la pestaña lo dice', ES, async $ => {
   const vacio = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await card(vacio, 'agents'))?.summary).toBe('Ninguno por ahora')
-  await clickCard(vacio, 'agents')
   expect((await vacio.find({ type: 'Text', text: /reparte un trabajo/ }))?.text).toContain('otros Claude')
-  await clickCard(vacio, 'agents')
   await vacio.unmount()
 })
 
@@ -190,10 +180,8 @@ test('con muchos subagentes, la pestaña dibuja cuatro y cuenta los que no entra
   }
   const lleno = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await card(lleno, 'agents'))?.summary).toBe('6 trabajando ahora')
-  await clickCard(lleno, 'agents')
   expect((await lleno.findAll({ type: 'Text', text: /^Tarea \d$/ })).length).toBe(4)
   expect((await lleno.find({ type: 'Text', text: /más$/ }))?.text).toBe('+ 2 más')
-  await clickCard(lleno, 'agents')
   await lleno.unmount()
 })
 
@@ -419,15 +407,12 @@ test('el marcador suma pedidos, pasos y fallas de la sesión', ES, async ($, on)
   await $.tool.call({ tool: 'Bash', command: 'false' } as never)
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeUndefined()
-  // la pestaña de sesión: las cifras grandes con su rótulo
-  await clickCard(ui, 'score')
+  // el resumen de la sesión está siempre a la vista: las cifras grandes con su rótulo
   expect((await ui.find({ type: 'Text', text: /^PEDIDOS$/ }))?.text).toBe('PEDIDOS')
   expect((await ui.find({ type: 'Text', text: /^FALLAS$/ }))?.text).toBe('FALLAS')
   const numbers = (await ui.findAll({ type: 'Text', text: /^\d+$/ })).map(x => x.text)
   expect(numbers).toContain('1')
   expect(numbers).toContain('2')
-  await clickCard(ui, 'score')
   await ui.unmount()
 })
 
@@ -531,16 +516,12 @@ test('set to English, the panel speaks English', EN, async ($, on) => {
     const ui = await $.ui.mount({ ...PANE_EN, surface })
     expect((await ui.find({ type: 'Text', text: /Reading/ }))?.text).toBe('Reading · app.ts')
     expect((await ui.find({ type: 'Text', text: /Running/ }))?.text).toBe('Running · npm test')
-    expect(await shown(ui)).toEqual(['▾ What Claude is doing', '▸ Other Claudes helping', '▸ Session summary'])
-    expect((await card(ui, 'steps'))?.summary).toBe('2 actions done')
+    expect(await shown(ui, 'en')).toEqual(['What Claude is doing', 'Other Claudes helping', 'Session summary'])
+    expect((await card(ui, 'steps', 'en'))?.summary).toBe('2 actions done')
     // nothing left behind in Spanish
     expect(await ui.find({ type: 'Text', text: /Leyendo|hechas|Acá aparece/ })).toBeUndefined()
-    await clickCard(ui, 'agents')
     expect((await ui.find({ type: 'Text', text: /splits a big job/ }))?.text).toContain('other Claudes')
-    await clickCard(ui, 'score')
     expect(await ui.find({ type: 'Text', text: /^PROMPTS$|^REQUESTS$/ })).toBeDefined()
-    await clickCard(ui, 'agents')
-    await clickCard(ui, 'score')
     await ui.unmount()
   }
 })
@@ -714,9 +695,9 @@ test('in English the meter reads CONTEXT', EN, async ($, on) => {
   await ui.unmount()
 })
 
-// ---------- Las pestañas ----------
+// ---------- Las secciones ----------
 
-test('de fábrica se ven los pasos con lo que se está haciendo del plan, y el plan entero en su pestaña', ES, async ($, on) => {
+test('todas las secciones se ven desplegadas a la vez, con la lista de tareas arriba y entera', ES, async ($, on) => {
   on('tool.call', () => ({ result: {} }))
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
@@ -732,18 +713,19 @@ test('de fábrica se ven los pasos con lo que se está haciendo del plan, y el p
 
   for (const surface of ['desktop', 'terminal'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /Escribir el mod/ }))?.text).toBe('Escribir el mod')
-    expect(await ui.find({ type: 'Text', text: /Leer el código|Probarlo|Publicarlo/ })).toBeUndefined()
+    // las tareas van primero: es lo que se mira para saber cómo viene el pedido
+    expect(await shown(ui)).toEqual(['Lista de tareas', 'Qué está haciendo Claude', 'Otros Claude ayudando', 'Resumen de la sesión'])
     expect((await card(ui, 'plan'))?.summary).toBe('1 de 4 tareas terminadas')
-    expect((await card(ui, 'plan'))?.title).toBe('Lista de tareas')
-
-    await clickCard(ui, 'plan')
-    expect(await ui.find({ type: 'Text', text: /Leer el código/ })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: /Publicarlo/ })).toBeDefined()
-    expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▾ Lista de tareas', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
-
-    await clickCard(ui, 'plan')
-    expect(await ui.find({ type: 'Text', text: /Publicarlo/ })).toBeUndefined()
+    // la lista entera, sin tocar nada; la tarea en curso figura una sola vez, no repetida sobre los pasos
+    for (const tarea of ['Leer el código', 'Escribir el mod', 'Probarlo', 'Publicarlo']) {
+      expect((await ui.findAll({ type: 'Text', text: new RegExp(`^${tarea}$`) })).length).toBe(1)
+    }
+    // y las demás secciones muestran lo suyo al mismo tiempo
+    expect(await ui.find({ type: 'Text', text: /Acá aparece/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /reparte un trabajo/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeDefined()
+    // no hay nada que tocar para verlas: ni botones ni flechitas
+    expect((await buttons(ui)).length).toBe(0)
     await ui.unmount()
   }
 })
@@ -752,47 +734,42 @@ test('los pasos van lo más nuevo arriba y el título cuenta cuántos van', ES, 
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
   on('tool.call', () => ({ result: {} }))
-  for (let i = 1; i <= 9; i += 1) {
+  for (let i = 1; i <= 14; i += 1) {
     await $.tool.call({ tool: i % 2 ? 'Read' : 'Edit', file_path: `f${i}.ts` } as never)
   }
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   expect((await card(ui, 'steps'))?.title).toBe('Qué está haciendo Claude')
-  expect((await card(ui, 'steps'))?.summary).toBe('9 acciones hechas')
+  expect((await card(ui, 'steps'))?.summary).toBe('14 acciones hechas')
   // lo más nuevo arriba
-  const labels = (await ui.findAll({ type: 'Text', text: /f\d\.ts/ })).map(x => x.text)
-  expect(labels[0]).toContain('f9.ts')
-  // entran los últimos (como mínimo seis); los viejos se cuentan, no desaparecen sin aviso
-  expect(labels.length).toBeGreaterThanOrEqual(6)
-  if (labels.length < 9) {
-    expect((await ui.find({ type: 'Text', text: /anterior/ }))?.text).toContain(String(9 - labels.length))
-  }
+  const labels = (await ui.findAll({ type: 'Text', text: /f\d+\.ts/ })).map(x => x.text)
+  expect(labels[0]).toContain('f14.ts')
+  // entran los diez últimos; los viejos se cuentan, no desaparecen sin aviso
+  expect(labels.length).toBe(10)
+  expect((await ui.find({ type: 'Text', text: /anterior/ }))?.text).toBe('+ 4 pasos anteriores')
   await ui.unmount()
 })
 
-test('sin plan no hay pestaña de plan; las demás siempre están', ES, async ($, on) => {
+test('sin plan no hay sección de tareas; las demás siempre están', ES, async ($, on) => {
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
   on('tool.call', () => ({ result: {} }))
   await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
+  expect(await shown(ui)).toEqual(['Qué está haciendo Claude', 'Otros Claude ayudando', 'Resumen de la sesión'])
   await ui.unmount()
 })
 
-test('las tarjetas abiertas quedan abiertas; si el plan se vacía, su tarjeta se va y las demás siguen', ES, async ($, on) => {
+test('si el plan se vacía, su sección se va y las demás siguen', ES, async ($, on) => {
   on('tool.call', () => ({ result: {} }))
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
   await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Algo', status: 'in_progress' }] } as never)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await clickCard(ui, 'plan')
-  expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▾ Lista de tareas', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
+  expect(await shown(ui)).toEqual(['Lista de tareas', 'Qué está haciendo Claude', 'Otros Claude ayudando', 'Resumen de la sesión'])
   await ui.unmount()
-  const otra = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await shown(otra)).toEqual(['▾ Qué está haciendo Claude', '▾ Lista de tareas', '▸ Otros Claude ayudando', '▸ Resumen de la sesión'])
-  await otra.unmount()
   await $.tool.call({ tool: 'TodoWrite', todos: [] } as never)
   const vacio = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await shown(vacio)).toEqual(['Qué está haciendo Claude', 'Otros Claude ayudando', 'Resumen de la sesión'])
   expect(await vacio.find({ type: 'Text', text: /Acá aparece/ })).toBeDefined()
   await vacio.unmount()
 })
@@ -831,56 +808,146 @@ test('un paso largo se lee entero, sin cortar el texto', ES, async ($, on) => {
   }
 })
 
-test('tocar la tarjeta abierta la cierra, y con ninguna abierta el menú sólo muestra los títulos', ES, async ($, on) => {
+test('cada sección dice arriba qué es y, en un renglón, qué tiene', ES, async ($, on) => {
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
   on('tool.call', () => ({ result: {} }))
   await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
-  await clickCard(ui, 'steps')
-  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
-  expect((await menu(ui)).some(c => c.isOpen)).toBe(false)
-  // el resumen de cada una sigue a la vista
-  expect((await card(ui, 'steps'))?.summary).toBe('1 acción hecha')
-  // la flechita hace lo mismo que el título
-  await ui.press({ key: 'flecha-steps' })
-  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
+  expect(await card(ui, 'steps')).toEqual({ id: 'steps', title: 'Qué está haciendo Claude', summary: '1 acción hecha' })
+  expect(await card(ui, 'agents')).toEqual({ id: 'agents', title: 'Otros Claude ayudando', summary: 'Ninguno por ahora' })
+  expect(await card(ui, 'score')).toEqual({ id: 'score', title: 'Resumen de la sesión', summary: '0 pedidos · 0s de laburo' })
   await ui.unmount()
 })
 
-test('el título y el resumen de una tarjeta son un solo botón, y la flechita hace lo mismo', ES, async ($, on) => {
-  let t = 1000
-  on('clock.now', () => ({ value: (t += 250) }))
-  on('tool.call', () => ({ result: {} }))
-  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+test('el panel crece con lo que tiene para que se pueda recorrer con la ruedita, en vez de apretarse', ES, async $ => {
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  expect(await card(ui, 'score')).toEqual({ id: 'score', title: 'Resumen de la sesión', summary: '0 pedidos · 0s de laburo', isOpen: false })
-  await clickCard(ui, 'score')
-  expect((await ui.find({ type: 'Text', text: /^PEDIDOS$/ }))?.text).toBe('PEDIDOS')
-  expect((await card(ui, 'score'))?.isOpen).toBe(true)
-  await ui.press({ key: 'flecha-score' })
-  expect((await card(ui, 'score'))?.isOpen).toBe(false)
+  const root = ((await ui.find({ type: 'Box' })) as { props: Record<string, unknown> } | undefined)?.props
+  // alto mínimo, no alto fijo: un alto fijo aplasta o corta lo que no entra y no deja nada que recorrer
+  expect(root?.minHeight).toBe('100%')
+  expect(root?.height).toBeUndefined()
   await ui.unmount()
 })
 
-test('se pueden abrir varias tarjetas a la vez, y cada una se cierra por su cuenta', ES, async ($, on) => {
+// ---------- Que no se quede clavado ----------
+
+test('si una herramienta se corta por la mitad, su paso no queda girando para siempre', ES, async ($, on) => {
   let t = 1000
   on('clock.now', () => ({ value: (t += 250) }))
-  on('tool.call', () => ({ result: {} }))
-  await $.tool.call({ tool: 'Read', file_path: 'a.ts' })
+  // la persona frena a Claude con Esc: la herramienta no llega a contestar
+  on('tool.call', () => {
+    throw new Error('interrumpido')
+  })
+  await $.tool.call({ tool: 'Bash', command: 'npm test' } as never).catch(() => undefined)
+
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
-  await clickCard(ui, 'agents')
-  await clickCard(ui, 'score')
-  expect(await shown(ui)).toEqual(['▾ Qué está haciendo Claude', '▾ Otros Claude ayudando', '▾ Resumen de la sesión'])
-  // las tres a la vista al mismo tiempo
-  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /reparte un trabajo/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeDefined()
-  // cerrar una no toca a las otras
-  await clickCard(ui, 'steps')
-  expect(await shown(ui)).toEqual(['▸ Qué está haciendo Claude', '▾ Otros Claude ayudando', '▾ Resumen de la sesión'])
-  expect(await ui.find({ type: 'Text', text: /a\.ts/ })).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: /^PEDIDOS$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /npm test/ }))?.text).toBe('Ejecutando · npm test')
+  expect(await ui.find({ type: 'Text', text: /^◐$/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^⊘$/ }))?.text).toBe('⊘')
+  expect((await card(ui, 'steps'))?.summary).not.toContain('en curso')
+  await ui.unmount()
+})
+
+test('al reabrir la app el plan se recupera de la conversación, y los avances vuelven a moverlo', ES, async ($, on) => {
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('tool.call', () => ({ result: {} }))
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  const PLAN = 'mcp__ccd_turn__update_plan'
+  // lo que quedó escrito en la conversación antes de cerrar: la lista, y un avance
+  on('session.messages', () => ({
+    value: [
+      { role: 'user', text: 'arreglá el panel', toolUses: [] },
+      {
+        role: 'assistant',
+        text: '',
+        toolUses: [
+          {
+            tool_use_id: 'p1',
+            tool: PLAN,
+            input: {
+              scope: 'first_task',
+              items: [
+                { content: 'Leer el código', status: 'in_progress' },
+                { content: 'Arreglarlo', status: 'pending' },
+                { content: 'Probarlo', status: 'pending' },
+              ],
+            },
+          },
+          { tool_use_id: 'r1', tool: 'Read', input: { file_path: 'a.ts' } },
+        ],
+      },
+      { role: 'assistant', text: '', toolUses: [{ tool_use_id: 'p2', tool: PLAN, input: { advance: true } }] },
+    ],
+  }) as never)
+
+  // la app arranca de nuevo: el mod no tiene nada guardado de esta conversación
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const antes = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await card(antes, 'plan'))?.summary).toBe('1 de 3 tareas terminadas')
+  expect(await antes.find({ type: 'Text', text: /^Arreglarlo$/ })).toBeDefined()
+  await antes.unmount()
+
+  // Claude sigue y sólo avisa «terminé este, voy al siguiente», sin repetir la lista
+  await $.tool.call({ tool: PLAN, advance: true } as never)
+  const despues = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await card(despues, 'plan'))?.summary).toBe('2 de 3 tareas terminadas')
+  await despues.unmount()
+})
+
+test('la lista de tareas de un subagente no pisa la del pedido', ES, async ($, on) => {
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('agent.spawn', () => ({ model: 'haiku', agentId: 'ag-1' }))
+  on('tool.call', () => ({ result: {} }))
+  await $.tool.call({
+    tool: 'mcp__ccd_turn__update_plan',
+    items: [
+      { content: 'Lo que pidió Joa', status: 'in_progress' },
+      { content: 'Probarlo', status: 'pending' },
+    ],
+  } as never)
+  await $.agent.spawn({
+    tool_use_id: 'tu-1',
+    prompt: 'buscá cosas',
+    description: 'Explorar el repo',
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'opus',
+  } as never)
+  // el subagente lleva su propia lista mientras trabaja
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Cosa interna del subagente', status: 'in_progress' }], agentId: 'ag-1' } as never)
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect((await card(ui, 'plan'))?.summary).toBe('0 de 2 tareas terminadas')
+  expect(await ui.find({ type: 'Text', text: /^Lo que pidió Joa$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Cosa interna/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('un plan que ya está en memoria no se pisa con el de la conversación', ES, async ($, on) => {
+  on('command.register', () => ({ value: { command: 'x' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+  on('tool.call', () => ({ result: {} }))
+  let t = 1000
+  on('clock.now', () => ({ value: (t += 250) }))
+  on('session.messages', () => ({
+    value: [
+      {
+        role: 'assistant',
+        text: '',
+        toolUses: [{ tool_use_id: 'v1', tool: 'TodoWrite', input: { todos: [{ content: 'Viejo', status: 'pending' }] } }],
+      },
+    ],
+  }) as never)
+  await $.tool.call({ tool: 'TodoWrite', todos: [{ content: 'Nuevo', status: 'in_progress' }] } as never)
+  // una recarga del mod vuelve a pasar por el arranque
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Nuevo$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Viejo$/ })).toBeUndefined()
   await ui.unmount()
 })
